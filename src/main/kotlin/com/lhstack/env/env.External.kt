@@ -19,11 +19,24 @@ fun Any.setEnv(project: Project, module: Module, env: String, value: String) {
     PropertiesComponent.getInstance().setValue("RUNTIME_ENVIRONMENT_env_${env}_${project.locationHash}_$module", value)
 }
 
-fun Any.getActiveEnv(project: Project, module: Module) =
-    PropertiesComponent.getInstance().getValue("RUNTIME_ENVIRONMENT_activeEnv_${project.locationHash}_$module") ?: "dev"
+fun Any.getActiveEnv(project: Project, module: Module): String {
+    val savedEnv = PropertiesComponent.getInstance().getValue("RUNTIME_ENVIRONMENT_activeEnv_${project.locationHash}_$module")
+    val environments = EnvironmentConfigManager.getEnvironments()
+    
+    // 如果没有保存的环境，或者保存的环境不存在于当前环境列表中，则返回第一个环境
+    return if (savedEnv != null && environments.contains(savedEnv)) {
+        savedEnv
+    } else {
+        environments.firstOrNull() ?: "dev"
+    }
+}
 
 fun Any.setActiveEnv(project: Project, module: Module, value: String) {
-    PropertiesComponent.getInstance().setValue("RUNTIME_ENVIRONMENT_activeEnv_${project.locationHash}_$module",value)
+    val environments = EnvironmentConfigManager.getEnvironments()
+    // 只有当环境存在于当前环境列表中时，才设置为活动环境
+    if (environments.contains(value)) {
+        PropertiesComponent.getInstance().setValue("RUNTIME_ENVIRONMENT_activeEnv_${project.locationHash}_$module", value)
+    }
 }
 
 fun Any.getArgs(project: Project, module: Module,env:String) =

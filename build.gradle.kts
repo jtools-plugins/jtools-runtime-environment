@@ -21,7 +21,7 @@ repositories {
     mavenCentral()
 }
 dependencies {
-    implementation(files("C:/Users/1/.jtools/sdk/sdk.jar"))
+    implementation(files("C:/Users/32817/.jtools/sdk/sdk.jar"))
     intellijPlatform{
         intellijIdeaCommunity("2022.3")
         bundledPlugin("com.intellij.java")

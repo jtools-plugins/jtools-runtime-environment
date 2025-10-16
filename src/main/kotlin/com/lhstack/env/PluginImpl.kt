@@ -51,7 +51,7 @@ class PluginImpl : IPlugin {
                 }.toTypedArray()
                 val changeState = java.util.concurrent.atomic.AtomicBoolean(true)
                 val comboBox = ComboBox<Module>(modules)
-                val envComboBox = ComboBox<String>(arrayOf("dev","test","prod"))
+                val envComboBox = ComboBox<String>(EnvironmentConfigManager.getEnvironments().toTypedArray())
                 ComboboxSpeedSearch.installSpeedSearch<Module>(comboBox) {
                     it.toString()
                 }
@@ -114,9 +114,51 @@ class PluginImpl : IPlugin {
                                     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
                                 }
+                            
+                            // 添加环境按钮
+                            val addEnvButton = JButton("新增")
+                            addEnvButton.toolTipText = "添加环境"
+                            addEnvButton.addActionListener {
+                                if (EnvironmentConfigManager.showAddEnvironmentDialog(project)) {
+                                    // 更新环境下拉框
+                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
+                                }
+                            }
+                            
+                            // 删除环境按钮
+                            val removeEnvButton = JButton("删除")
+                            removeEnvButton.toolTipText = "删除环境"
+                            removeEnvButton.addActionListener {
+                                val selectedEnv = envComboBox.selectedItem as String
+                                if (EnvironmentConfigManager.showRemoveEnvironmentDialog(project, selectedEnv)) {
+                                    // 更新环境下拉框
+                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
+                                    // 更新活动环境
+                                    val newSelectedEnv = envComboBox.selectedItem as String
+                                    this@PluginImpl.setActiveEnv(project, comboBox.selectedItem as Module, newSelectedEnv)
+                                }
+                            }
+                            
+                            // 重命名环境按钮
+                            val renameEnvButton = JButton("修改")
+                            renameEnvButton.toolTipText = "重命名环境"
+                            renameEnvButton.addActionListener {
+                                val selectedEnv = envComboBox.selectedItem as String
+                                if (EnvironmentConfigManager.showRenameEnvironmentDialog(project, selectedEnv)) {
+                                    // 更新环境下拉框
+                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
+                                    // 更新活动环境
+                                    val newSelectedEnv = envComboBox.selectedItem as String
+                                    this@PluginImpl.setActiveEnv(project, comboBox.selectedItem as Module, newSelectedEnv)
+                                }
+                            }
+                            
                             this.add(ActionButton(toggle,toggle.templatePresentation,ActionPlaces.TOOLWINDOW_TOOLBAR_BAR, Dimension(34,20)))
                             this.add(comboBox)
                             this.add(envComboBox)
+                            this.add(addEnvButton)
+                            this.add(removeEnvButton)
+                            this.add(renameEnvButton)
                         }, BorderLayout.EAST)
                     }, BorderLayout.NORTH)
                     this.add(JBSplitter(true).apply {
