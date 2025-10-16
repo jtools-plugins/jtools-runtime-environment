@@ -115,50 +115,28 @@ class PluginImpl : IPlugin {
 
                                 }
                             
-                            // 添加环境按钮
-                            val addEnvButton = JButton("新增")
-                            addEnvButton.toolTipText = "添加环境"
-                            addEnvButton.addActionListener {
-                                if (EnvironmentConfigManager.showAddEnvironmentDialog(project)) {
-                                    // 更新环境下拉框
-                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
-                                }
-                            }
-                            
-                            // 删除环境按钮
-                            val removeEnvButton = JButton("删除")
-                            removeEnvButton.toolTipText = "删除环境"
-                            removeEnvButton.addActionListener {
-                                val selectedEnv = envComboBox.selectedItem as String
-                                if (EnvironmentConfigManager.showRemoveEnvironmentDialog(project, selectedEnv)) {
-                                    // 更新环境下拉框
-                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
-                                    // 更新活动环境
+                            // 环境管理按钮
+                            val manageEnvButton = JButton("管理环境")
+                            manageEnvButton.preferredSize = Dimension(90,0)
+                            manageEnvButton.toolTipText = "管理环境配置"
+                            manageEnvButton.addActionListener {
+                                val dialog = EnvironmentManageDialog(project, envComboBox)
+                                if (dialog.showAndGet()) {
+                                    // 对话框关闭后，更新活动环境
                                     val newSelectedEnv = envComboBox.selectedItem as String
                                     this@PluginImpl.setActiveEnv(project, comboBox.selectedItem as Module, newSelectedEnv)
-                                }
-                            }
-                            
-                            // 重命名环境按钮
-                            val renameEnvButton = JButton("修改")
-                            renameEnvButton.toolTipText = "重命名环境"
-                            renameEnvButton.addActionListener {
-                                val selectedEnv = envComboBox.selectedItem as String
-                                if (EnvironmentConfigManager.showRenameEnvironmentDialog(project, selectedEnv)) {
-                                    // 更新环境下拉框
-                                    EnvironmentConfigManager.updateComboBoxModel(envComboBox)
-                                    // 更新活动环境
-                                    val newSelectedEnv = envComboBox.selectedItem as String
-                                    this@PluginImpl.setActiveEnv(project, comboBox.selectedItem as Module, newSelectedEnv)
+                                    
+                                    // 更新参数和环境变量
+                                    val selectedModule = comboBox.selectedItem as Module
+                                    envTextField.text = this@PluginImpl.getEnv(project, selectedModule, newSelectedEnv)
+                                    argsTextField.text = this@PluginImpl.getArgs(project, selectedModule, newSelectedEnv)
                                 }
                             }
                             
                             this.add(ActionButton(toggle,toggle.templatePresentation,ActionPlaces.TOOLWINDOW_TOOLBAR_BAR, Dimension(34,20)))
                             this.add(comboBox)
                             this.add(envComboBox)
-                            this.add(addEnvButton)
-                            this.add(removeEnvButton)
-                            this.add(renameEnvButton)
+                            this.add(manageEnvButton)
                         }, BorderLayout.EAST)
                     }, BorderLayout.NORTH)
                     this.add(JBSplitter(true).apply {
