@@ -242,7 +242,7 @@ class PluginImpl : IPlugin {
 
                 val settingAction = object:AnAction({"Settings"}, AllIcons.General.Settings) {
                     override fun actionPerformed(p0: AnActionEvent) {
-                        val envSettingDialog = EnvSettingDialog(project,modulesBox.selection,envComboBox)
+                        val envSettingDialog = EnvSettingDialog(logger,project,modulesBox.selection,envComboBox)
                         envSettingDialog.show()
                     }
                 }
