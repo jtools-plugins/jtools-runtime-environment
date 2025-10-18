@@ -376,10 +376,10 @@ public class EnvSettingDialog extends DialogWrapper {
                         deleteButton.setEnabled(false);
                         deleteButton.setToolTipText("默认环境不可删除");
                     }else {
-                        id.set(Integer.parseInt(String.valueOf(table.getValueAt(row,1))));
-                        currentRow.set(row);
                         deleteButton.setEnabled(true);
                     }
+                    id.set(Integer.parseInt(String.valueOf(table.getValueAt(row,1))));
+                    currentRow.set(row);
                 });
                 return panel;
             }

@@ -18,11 +18,10 @@ class MultiLanguageTextField(
     value: String,
     private val isLineNumbersShown: Boolean = true,
     val viewer: Boolean = false,
+    val oneLineMode:Boolean = false,
     val editorListener: (EditorEx) -> Unit = {}
 ) :
-    LanguageTextField(languageFileType.language, project, value, false), Disposable {
-
-    private val documentCreator = SimpleDocumentCreator()
+    LanguageTextField(languageFileType.language, project, value, oneLineMode), Disposable {
 
     companion object {
         fun dynamic(
@@ -37,32 +36,14 @@ class MultiLanguageTextField(
             }
         }
     }
-
-    init {
-        border = null
-    }
-
     override fun dispose() {
         editor?.let { EditorFactory.getInstance().releaseEditor(it) }
-    }
-
-    fun changeLanguageFieType(languageFileType: LanguageFileType) {
-        if (this.languageFileType !== languageFileType) {
-            this.setNewDocumentAndFileType(
-                languageFileType,
-                this.documentCreator.createDocument(this.document.text, languageFileType.language, this.project)
-            )
-            this.languageFileType = languageFileType
-            val editor = this.editor
-            if (editor is EditorEx) {
-                editor.highlighter = HighlighterFactory.createHighlighter(this.project, this.languageFileType)
-            }
-        }
     }
 
     override fun createEditor(): EditorEx {
         val editorEx = EditorFactory.getInstance()
             .createEditor(document, project, languageFileType, this.viewer) as EditorEx
+        editorEx.isOneLineMode = oneLineMode
         editorEx.highlighter = HighlighterFactory.createHighlighter(project, languageFileType)
         val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(
             editorEx.document
@@ -75,15 +56,19 @@ class MultiLanguageTextField(
 //                DaemonCodeAnalyzer.getInstance(project).setImportHintsEnabled(psiFile,true)
 //            }
         }
-        editorEx.setBorder(null)
+//        editorEx.setBorder(null)
         editorListener.invoke(editorEx)
         val settings = editorEx.settings
         //去掉折叠轮廓列,编辑器中
         settings.isFoldingOutlineShown = false
         settings.additionalLinesCount = 0
         settings.additionalColumnsCount = 1
-        settings.isLineNumbersShown = isLineNumbersShown
-        settings.isUseSoftWraps = false
+        if(!oneLineMode){
+            settings.isLineNumbersShown = isLineNumbersShown
+        }else {
+            settings.isLineNumbersShown = false
+        }
+        settings.isUseSoftWraps = true
         settings.lineCursorWidth = 1
         settings.isLineMarkerAreaShown = false
         settings.setRightMargin(-1)
