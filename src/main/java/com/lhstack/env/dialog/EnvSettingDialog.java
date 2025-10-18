@@ -2,11 +2,11 @@ package com.lhstack.env.dialog;
 
 import com.intellij.designer.actions.AbstractComboBoxAction;
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.AbstractTableCellEditor;
@@ -16,7 +16,6 @@ import com.lhstack.tools.plugins.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.TableModelEvent;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -30,21 +29,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class EnvSettingDialog extends DialogWrapper {
-    private final AbstractComboBoxAction<RuntimeEnvironment> runtimEnvironmentComboBox;
+    private final AbstractComboBoxAction<RuntimeEnvironment> runtimeEnvironmentComboBox;
     private final Project project;
     private final Logger logger;
     private final JBTable jbTable;
+    private final Module module;
 
     private DefaultTableModel model;
 
     public EnvSettingDialog(Logger logger, Project project, Module module, AbstractComboBoxAction<RuntimeEnvironment> comboBox) {
         super(project, false);
-        this.runtimEnvironmentComboBox = comboBox;
+        this.runtimeEnvironmentComboBox = comboBox;
         this.setSize(1000, 600);
         this.setTitle("环境列表");
         this.setAutoAdjustable(false);
         this.project = project;
         this.logger = logger;
+        this.module = module;
         RuntimeEnvironmentService.getService(service -> {
             List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
             Object[][] array = runtimeEnvironments.stream().map(item -> new Object[]{
@@ -97,6 +98,7 @@ public class EnvSettingDialog extends DialogWrapper {
                                     }
                                 }
                                 RuntimeEnvironmentService.execute(service -> service.removeBatchByIds(delIds));
+                                refreshComboBox();
                             }
                         }
                     }
@@ -108,6 +110,16 @@ public class EnvSettingDialog extends DialogWrapper {
                     }
                 }
         };
+    }
+
+    private void refreshComboBox() {
+        RuntimeEnvironmentService.getService(service -> {
+            List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
+            RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
+            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream().filter(item -> item.getId().equals(selection.getId())).findFirst().orElseGet(() -> runtimeEnvironments.get(0));
+            runtimeEnvironmentComboBox.setItems(runtimeEnvironments,selectionRuntimeEnvironment);
+            service.updateActive(selectionRuntimeEnvironment,true);
+        });
     }
 
     @Override
@@ -346,6 +358,7 @@ public class EnvSettingDialog extends DialogWrapper {
                         RuntimeEnvironmentService.getService(service -> {
                             service.removeById(id.get());
                         });
+                        refreshComboBox();
                     }
                 });
                 panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
