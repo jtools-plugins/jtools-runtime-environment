@@ -9,9 +9,11 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.AbstractTableCellEditor;
+import com.lhstack.data.component.MultiLanguageTextField;
 import com.lhstack.env.service.RuntimeEnvironment;
 import com.lhstack.env.service.RuntimeEnvironmentService;
 import com.lhstack.tools.plugins.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -33,10 +35,13 @@ public class EnvSettingDialog extends DialogWrapper {
     private final Logger logger;
     private final JBTable jbTable;
     private final Module module;
+    private final MultiLanguageTextField vmTextField;
+    private final MultiLanguageTextField argsTextField;
+    private final MultiLanguageTextField envTextField;
 
     private DefaultTableModel model;
 
-    public EnvSettingDialog(Logger logger, Project project, Module module, AbstractComboBoxAction<RuntimeEnvironment> comboBox) {
+    public EnvSettingDialog(Logger logger, Project project, Module module, AbstractComboBoxAction<RuntimeEnvironment> comboBox, @NotNull MultiLanguageTextField vmTextField, @NotNull MultiLanguageTextField argsTextField, @NotNull MultiLanguageTextField envTextField) {
         super(project, false);
         this.runtimeEnvironmentComboBox = comboBox;
         this.setSize(1000, 600);
@@ -45,6 +50,9 @@ public class EnvSettingDialog extends DialogWrapper {
         this.project = project;
         this.logger = logger;
         this.module = module;
+        this.vmTextField = vmTextField;
+        this.argsTextField = argsTextField;
+        this.envTextField = envTextField;
         RuntimeEnvironmentService.getService(service -> {
             List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
             Object[][] array = runtimeEnvironments.stream().map(item -> new Object[]{
@@ -72,6 +80,12 @@ public class EnvSettingDialog extends DialogWrapper {
     @Override
     protected Action[] createActions() {
         return new Action[]{
+                new AbstractAction("新增") {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        new EditEnvSettingDialog(project,model,module,jbTable,runtimeEnvironmentComboBox,null, vmTextField, argsTextField, envTextField).show();
+                    }
+                },
                 new AbstractAction("删除") {
                     @Override
                     public void actionPerformed(ActionEvent e) {
@@ -101,13 +115,8 @@ public class EnvSettingDialog extends DialogWrapper {
                             }
                         }
                     }
-                },
-                new AbstractAction("新增") {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        new EditEnvSettingDialog(project,jbTable,runtimeEnvironmentComboBox,null).show();
-                    }
                 }
+
         };
     }
 
@@ -117,6 +126,11 @@ public class EnvSettingDialog extends DialogWrapper {
             RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
             RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream().filter(item -> item.getId().equals(selection.getId())).findFirst().orElseGet(() -> runtimeEnvironments.get(0));
             runtimeEnvironmentComboBox.setItems(runtimeEnvironments,selectionRuntimeEnvironment);
+            SwingUtilities.invokeLater(() -> {
+                envTextField.setText(selectionRuntimeEnvironment.getEnvValue());
+                vmTextField.setText(selectionRuntimeEnvironment.getVmValue());
+                argsTextField.setText(selectionRuntimeEnvironment.getArgsValue());
+            });
             service.updateActive(selectionRuntimeEnvironment,true);
         });
     }
@@ -347,7 +361,7 @@ public class EnvSettingDialog extends DialogWrapper {
                     if (jbTable.isEditing()) {
                         jbTable.getCellEditor().stopCellEditing();
                     }
-                    new EditEnvSettingDialog(project,jbTable,runtimeEnvironmentComboBox,id.get()).show();
+                    new EditEnvSettingDialog(project, model, module,jbTable,runtimeEnvironmentComboBox,id.get(),vmTextField,argsTextField,envTextField).show();
                 });
 
                 deleteButton.addActionListener(e -> {
