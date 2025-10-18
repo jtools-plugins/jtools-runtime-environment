@@ -17,6 +17,7 @@ import com.intellij.ui.JBSplitter
 import com.intellij.util.ui.JBUI
 import com.lhstack.data.component.MultiLanguageTextField
 import com.lhstack.env.dialog.EnvSettingDialog
+import com.lhstack.env.dialog.GlobalEnvSettingDialog
 import com.lhstack.env.service.RuntimeEnvironment
 import com.lhstack.env.service.RuntimeEnvironmentService
 import com.lhstack.tools.plugins.*
@@ -247,9 +248,21 @@ class PluginImpl : IPlugin {
                     }
                 }
 
+                val globalEnvAction = object: AnAction({"全局环境"}, Helper.findIcon("globalEnv.svg", PluginImpl::class.java)){
+                    override fun update(e: AnActionEvent) {
+                        super.update(e)
+                        val isActive = RuntimeEnvironmentService.execute { it.globalEnvironmentActive() }
+                        Toggleable.setSelected(e.presentation,isActive)
+                    }
+                    override fun actionPerformed(p0: AnActionEvent) {
+                        GlobalEnvSettingDialog(project).show()
+                    }
+                }
+
                 val actionManager = ActionManager.getInstance()
                 val toolbar =
                     actionManager.createActionToolbar("JTools@RuntimeEnvironment@Toolbar", DefaultActionGroup().also {
+                        it.add(globalEnvAction)
                         it.add(enabledAction)
                         it.add(modulesBox)
                         it.add(envComboBox)
@@ -321,8 +334,17 @@ class PluginImpl : IPlugin {
     }
 
     override fun unInstall() {
-        AttachJavaProgramPatcher.uninstall()
-        RuntimeEnvironmentService.destroy()
+        try{
+            AttachJavaProgramPatcher.uninstall()
+        }catch (e:Throwable){
+
+        }
+        try{
+            RuntimeEnvironmentService.destroy()
+        }catch (e:Throwable){
+
+        }
+
     }
 
     override fun supportMultiOpens(): Boolean {

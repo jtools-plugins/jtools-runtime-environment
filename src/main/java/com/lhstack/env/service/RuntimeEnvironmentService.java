@@ -110,7 +110,7 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
                     "    project_name TEXT NOT NULL,                         -- 项目名称，项目的显示名称\n" +
                     "    module TEXT NOT NULL,                               -- 模块名称，标识所属功能模块\n" +
                     "    name TEXT NOT NULL,                                 -- 环境名称，运行环境的显示名称\n" +
-                    "    remark TEXT NOT NULL,                               -- 备注说明，对环境配置的详细描述\n" +
+                    "    remark TEXT,                               -- 备注说明，对环境配置的详细描述\n" +
                     "    args_value TEXT,                           -- 参数值，运行时参数的JSON格式存储\n" +
                     "    env_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
                     "    vm_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
@@ -163,6 +163,34 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
         if(dataSource != null) {
             dataSource.close();
         }
+    }
+
+    public Boolean globalEnvironmentActive(){
+        return getGlobalEnvironment().getIsDefault() == 1;
+    }
+
+    public void globalEnvironmentUpdateActive(){
+        RuntimeEnvironment globalEnvironment = getGlobalEnvironment();
+        globalEnvironment.setIsDefault(globalEnvironment.getIsDefault() == 0 ? 1 : 0);
+        this.updateById(globalEnvironment);
+    }
+
+    public RuntimeEnvironment getGlobalEnvironment(){
+        RuntimeEnvironment environment = this.lambdaQuery()
+                .eq(RuntimeEnvironment::getId, -1)
+                .one();
+        if(environment == null){
+            environment = new RuntimeEnvironment();
+            environment.setId(-1)
+                    .setName("Global")
+                    .setModule("Global")
+                    .setProjectPath("Global")
+                    .setProjectName("Global")
+                    .setProjectHash("Global")
+                    .setIsDefault(0);
+            this.save(environment);
+        }
+        return environment;
     }
 
     public List<RuntimeEnvironment> getRuntimeEnvironments(Project project, Module module) {

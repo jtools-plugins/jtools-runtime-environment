@@ -13,11 +13,14 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.lhstack.data.component.MultiLanguageTextField;
+import com.lhstack.env.PluginImpl;
 import com.lhstack.env.service.RuntimeEnvironment;
 import com.lhstack.env.service.RuntimeEnvironmentService;
+import com.lhstack.tools.plugins.Logger;
 import kotlin.Unit;
 import org.jdesktop.swingx.VerticalLayout;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -32,6 +35,7 @@ import java.util.Optional;
 
 public class EditEnvSettingDialog extends DialogWrapper {
 
+    private static final org.slf4j.Logger log = LoggerFactory.getLogger(EditEnvSettingDialog.class);
     private final JTable table;
     private final AbstractComboBoxAction<RuntimeEnvironment> runtimeEnvironmentComboBox;
     private final Project project;
@@ -54,7 +58,7 @@ public class EditEnvSettingDialog extends DialogWrapper {
         this.model = model;
         this.runtimeEnvironmentComboBox = comboBox;
         this.setTitle(id != null ? "更新环境" : "新增环境");
-        this.setSize(800, 881);
+        this.setSize(600, 881);
         this.setAutoAdjustable(false);
         if (id != null) {
             runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
@@ -81,11 +85,6 @@ public class EditEnvSettingDialog extends DialogWrapper {
                                 Messages.showInfoMessage("环境名字已存在,请修改名字之后再保存或者更新", "提示");
                                 return false;
                             } else {
-                                runtimeEnvironment.setProjectHash(project.getLocationHash());
-                                runtimeEnvironment.setProjectName(project.getName());
-                                runtimeEnvironment.setProjectPath(project.getBasePath());
-                                runtimeEnvironment.setModule(module.toString());
-                                runtimeEnvironment.setIsDefault(0);
                                 Integer id = service.getSelectEnvId(project, module);
                                 if (Objects.equals(id, runtimeEnvironment.getId())) {
                                     SwingUtilities.invokeLater(() -> {
@@ -94,7 +93,19 @@ public class EditEnvSettingDialog extends DialogWrapper {
                                         argsTextField.setText(runtimeEnvironment.getArgsValue());
                                     });
                                 }
+                                for (int i = 0; i < model.getRowCount(); i++) {
+                                    int currId = Integer.parseInt(String.valueOf(model.getValueAt(i,1)));
+                                    if(Objects.equals(runtimeEnvironment.getId(),currId)){
+                                        model.setValueAt(runtimeEnvironment.getName(),i,2);
+                                        model.setValueAt(runtimeEnvironment.getRemark(),i,3);
+                                    }
+                                }
                                 if (runtimeEnvironment.getId() == null) {
+                                    runtimeEnvironment.setProjectHash(project.getLocationHash());
+                                    runtimeEnvironment.setProjectName(project.getName());
+                                    runtimeEnvironment.setProjectPath(project.getBasePath());
+                                    runtimeEnvironment.setModule(module.toString());
+                                    runtimeEnvironment.setIsDefault(0);
                                     service.save(runtimeEnvironment);
                                     model.addRow(new Object[]{
                                             false,

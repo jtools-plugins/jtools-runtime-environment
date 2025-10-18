@@ -10,8 +10,9 @@ import com.lhstack.env.service.RuntimeEnvironmentService
 class AttachJavaProgramPatcher: JavaProgramPatcher() {
 
     companion object {
+        val instance = AttachJavaProgramPatcher()
         fun install(){
-            EP_NAME.point.registerExtension(AttachJavaProgramPatcher()){}
+            EP_NAME.point.registerExtension(instance){}
         }
         fun uninstall(){
             EP_NAME.point.unregisterExtension(AttachJavaProgramPatcher::class.java)
@@ -26,26 +27,57 @@ class AttachJavaProgramPatcher: JavaProgramPatcher() {
             val project = p1.project
             p1.configurationModule.module?.let { module ->
                 RuntimeEnvironmentService.getService { service ->
-                    if(service.isActive(project, module)){
-                        service.getSelectEnvId(project, module)?.also { envId ->
-                            service.getById(envId)?.also { runtimeEnv ->
-                                val env = runtimeEnv.envValue?:""
-                                val args = runtimeEnv.argsValue?:""
-                                val vmArgs = runtimeEnv.vmValue?:""
-                                args.split("\n").forEach { line ->
+                    val logger = PluginImpl.loggers[project.locationHash]!!
+                    try{
+                        val envMap = mutableMapOf<String, String>()
+                        val argsMap = mutableMapOf<String, String>()
+                        val vmArgs = mutableSetOf<String>()
+                        service.globalEnvironment?.let { environment ->
+                            logger.info(environment.isDefault == 1)
+                            if(environment.isDefault == 1){
+                                (environment.argsValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
                                     val array = line.split("=")
-                                    p2.programParametersList.add("${array[0].trim()}=${array[1].trim()}")
+                                    argsMap[array[0].trim()] = array[1].trim()
                                 }
-                                vmArgs.split("\n").forEach { line ->
-                                    p2.vmParametersList.add(line.trim())
+                                (environment.vmValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
+                                    vmArgs.add(line.trim())
                                 }
-                                env.split("\n").forEach { line ->
+                                (environment.envValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
                                     val array = line.split("=")
-                                    p2.addEnv(array[0].trim(), array[1].trim())
+                                    envMap[array[0].trim()] = array[1].trim()
                                 }
                             }
                         }
+                        if(service.isActive(project, module)){
+                            service.getSelectEnvId(project, module)?.also { envId ->
+                                service.getById(envId)?.also { environment ->
+                                    (environment.argsValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
+                                        val array = line.split("=")
+                                        argsMap[array[0].trim()] = array[1].trim()
+                                    }
+                                    (environment.vmValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
+                                        vmArgs.add(line.trim())
+                                    }
+                                    (environment.envValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
+                                        val array = line.split("=")
+                                        envMap[array[0].trim()] = array[1].trim()
+                                    }
+                                }
+                            }
 
+                        }
+                        envMap.forEach { (key, value) ->
+                            p2.addEnv(key,value)
+                        }
+
+                        argsMap.forEach { (key, value) ->
+                            p2.programParametersList.add("$key=$value")
+                        }
+                        vmArgs.forEach {
+                            p2.vmParametersList.add(it)
+                        }
+                    }catch (e:Throwable){
+                        logger.error(e.message + "\n" + e.stackTrace.joinToString("\n") { it.toString() })
                     }
                 }
             }
