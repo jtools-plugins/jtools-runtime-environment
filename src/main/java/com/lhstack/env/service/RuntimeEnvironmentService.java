@@ -27,6 +27,7 @@ import java.sql.PreparedStatement;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMapper, RuntimeEnvironment> {
 
@@ -146,6 +147,15 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
             RuntimeEnvironmentMapper mapper = sqlSession.getMapper(RuntimeEnvironmentMapper.class);
             serviceConsumer.accept(new RuntimeEnvironmentService(mapper, sqlSession.getMapper(RuntimeEnvironmentActiveMapper.class)));
             sqlSession.commit();
+        }
+    }
+
+    public static <T> T execute(Function<RuntimeEnvironmentService, T> function) {
+        try (SqlSession sqlSession = sqlSessionFactory.openSession(false)) {
+            RuntimeEnvironmentMapper mapper = sqlSession.getMapper(RuntimeEnvironmentMapper.class);
+            T result = function.apply(new RuntimeEnvironmentService(mapper, sqlSession.getMapper(RuntimeEnvironmentActiveMapper.class)));
+            sqlSession.commit();
+            return result;
         }
     }
 

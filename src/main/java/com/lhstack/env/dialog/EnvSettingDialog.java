@@ -19,9 +19,11 @@ import javax.swing.*;
 import javax.swing.event.TableModelEvent;
 import javax.swing.table.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,6 +33,7 @@ public class EnvSettingDialog extends DialogWrapper {
     private final AbstractComboBoxAction<RuntimeEnvironment> runtimEnvironmentComboBox;
     private final Project project;
     private final Logger logger;
+    private final JBTable jbTable;
 
     private DefaultTableModel model;
 
@@ -62,12 +65,49 @@ public class EnvSettingDialog extends DialogWrapper {
                     "操作",
             });
         });
+        this.jbTable = new JBTable(model);
         this.init();
     }
 
     @Override
     protected Action[] createActions() {
-        return new Action[0];
+        return new Action[]{
+                new AbstractAction("删除") {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+                        List<Integer> delIds = new ArrayList<>();
+                        for (int i = 0; i < model.getRowCount(); i++) {
+                            boolean isSelect = Boolean.parseBoolean(String.valueOf(model.getValueAt(i, 0)));
+                            if(isSelect){
+                                Integer id = Integer.parseInt(String.valueOf(model.getValueAt(i, 1)));
+                                delIds.add(id);
+                            }
+                        }
+                        if(delIds.isEmpty()){
+                            Messages.showWarningDialog("请先选择要删除的数据","提示");
+                        }else {
+                            int isOk = Messages.showOkCancelDialog("确定删除吗?", "警告", "确定", "取消", AllIcons.General.Warning);
+                            if(isOk == Messages.OK){
+                                for (Integer delId : delIds) {
+                                    for (int i = 0; i < model.getRowCount(); i++) {
+                                        Integer id = Integer.parseInt(String.valueOf(model.getValueAt(i, 1)));
+                                        if(delId.equals(id)){
+                                            model.removeRow(i);
+                                        }
+                                    }
+                                }
+                                RuntimeEnvironmentService.execute(service -> service.removeBatchByIds(delIds));
+                            }
+                        }
+                    }
+                },
+                new AbstractAction("新增") {
+                    @Override
+                    public void actionPerformed(ActionEvent e) {
+
+                    }
+                }
+        };
     }
 
     @Override
@@ -81,9 +121,23 @@ public class EnvSettingDialog extends DialogWrapper {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                                                            boolean isSelected, boolean hasFocus, int row, int column) {
-                setSelected((value != null && (Boolean) value));
-                setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
-                setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                if(row >= 0){
+                    Integer id = Integer.parseInt(String.valueOf(table.getValueAt(row, 1)));
+                    RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
+                    if(runtimeEnvironment.getIsDefault() == 1){
+                        this.setEnabled(false);
+                        setSelected(false);
+                    }else {
+                        this.setEnabled(true);
+                        setSelected((value != null && (Boolean) value));
+                        setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                        setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                    }
+                }else {
+                    setSelected((value != null && (Boolean) value));
+                    setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                    setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                }
                 return this;
             }
         }
@@ -105,8 +159,21 @@ public class EnvSettingDialog extends DialogWrapper {
             @Override
             public Component getTableCellEditorComponent(JTable table, Object value,
                                                          boolean isSelected, int row, int column) {
-                checkBox.setSelected((Boolean) value);
-                checkBox.setBackground(table.getSelectionBackground());
+                if(row >= 0){
+                    Integer id = Integer.parseInt(String.valueOf(table.getValueAt(row, 1)));
+                    RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
+                    if(runtimeEnvironment.getIsDefault() == 1){
+                        checkBox.setEnabled(false);
+                        checkBox.setSelected(false);
+                    }else {
+                        checkBox.setEnabled(true);
+                        checkBox.setSelected((Boolean) value);
+                        checkBox.setBackground(table.getSelectionBackground());
+                    }
+                }else {
+                    checkBox.setSelected((Boolean) value);
+                    checkBox.setBackground(table.getSelectionBackground());
+                }
                 return checkBox;
             }
         }
@@ -149,8 +216,6 @@ public class EnvSettingDialog extends DialogWrapper {
             }
         }
 
-
-        JTable jbTable = new JBTable(model);
         jbTable.setCellSelectionEnabled(false);
         JTableHeader tableHeader = jbTable.getTableHeader();
         DefaultTableCellRenderer tableCellRenderer = new  DefaultTableCellRenderer();
@@ -179,7 +244,11 @@ public class EnvSettingDialog extends DialogWrapper {
                     }
                     for (int j = 0; j < jbTable.getRowCount(); j++) {
 //                        jbTable.setValueAt(bool.get(), j, 0);
-                        model.setValueAt((Boolean) bool.get(), j, 0);
+                        Integer id = Integer.parseInt(String.valueOf(model.getValueAt(j,1)));
+                        RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
+                        if(runtimeEnvironment.getIsDefault() == 0){
+                            model.setValueAt(bool.get(), j, 0);
+                        }
                     }
                     tableHeader.validate();
                     tableHeader.repaint();
@@ -305,7 +374,6 @@ public class EnvSettingDialog extends DialogWrapper {
                 return null;
             }
         });
-
         return new JBScrollPane(jbTable);
     }
 }
