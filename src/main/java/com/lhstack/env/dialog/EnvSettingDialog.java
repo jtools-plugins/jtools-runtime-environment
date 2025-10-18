@@ -2,7 +2,6 @@ package com.lhstack.env.dialog;
 
 import com.intellij.designer.actions.AbstractComboBoxAction;
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -106,7 +105,7 @@ public class EnvSettingDialog extends DialogWrapper {
                 new AbstractAction("新增") {
                     @Override
                     public void actionPerformed(ActionEvent e) {
-
+                        new EditEnvSettingDialog(project,jbTable,runtimeEnvironmentComboBox,null).show();
                     }
                 }
         };
@@ -345,7 +344,10 @@ public class EnvSettingDialog extends DialogWrapper {
 
             {
                 editButton.addActionListener(e -> {
-                    Messages.showInfoMessage("编辑","编辑内容");
+                    if (jbTable.isEditing()) {
+                        jbTable.getCellEditor().stopCellEditing();
+                    }
+                    new EditEnvSettingDialog(project,jbTable,runtimeEnvironmentComboBox,id.get()).show();
                 });
 
                 deleteButton.addActionListener(e -> {
