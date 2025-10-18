@@ -1,10 +1,14 @@
 package com.lhstack.env.dialog;
 
 import com.intellij.designer.actions.AbstractComboBoxAction;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.Messages;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import com.lhstack.env.service.RuntimeEnvironment;
 import com.lhstack.env.service.RuntimeEnvironmentService;
@@ -12,6 +16,7 @@ import com.lhstack.tools.plugins.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.TableModelEvent;
 import javax.swing.table.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -20,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.EventObject;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class EnvSettingDialog extends DialogWrapper {
     private final AbstractComboBoxAction<RuntimeEnvironment> runtimEnvironmentComboBox;
@@ -31,7 +37,7 @@ public class EnvSettingDialog extends DialogWrapper {
     public EnvSettingDialog(Logger logger, Project project, Module module, AbstractComboBoxAction<RuntimeEnvironment> comboBox) {
         super(project, false);
         this.runtimEnvironmentComboBox = comboBox;
-        this.setSize(800, 600);
+        this.setSize(1000, 600);
         this.setTitle("环境列表");
         this.setAutoAdjustable(false);
         this.project = project;
@@ -52,7 +58,8 @@ public class EnvSettingDialog extends DialogWrapper {
                     "环境名称",
                     "描述",
                     "创建时间",
-                    "更新时间"
+                    "更新时间",
+                    "操作",
             });
         });
         this.init();
@@ -110,8 +117,6 @@ public class EnvSettingDialog extends DialogWrapper {
 
             public CenterLabelRenderer(boolean hasToolTipText) {
                 this.setHorizontalAlignment(JLabel.CENTER);
-                this.setBackground(Color.LIGHT_GRAY); // 灰色背景提示不可编辑
-                this.setForeground(Color.LIGHT_GRAY);
                 this.hasToolTipText = hasToolTipText;
             }
 
@@ -145,14 +150,21 @@ public class EnvSettingDialog extends DialogWrapper {
         }
 
 
-        JTable jbTable = new JTable(model);
+        JTable jbTable = new JBTable(model);
+        jbTable.setCellSelectionEnabled(false);
         JTableHeader tableHeader = jbTable.getTableHeader();
+        DefaultTableCellRenderer tableCellRenderer = new  DefaultTableCellRenderer();
+        tableCellRenderer.setHorizontalAlignment(JLabel.CENTER);
+        tableHeader.setDefaultRenderer(tableCellRenderer);
         tableHeader.setReorderingAllowed(false);
+        jbTable.setRowHeight(40);
         TableColumn column = tableHeader.getColumnModel().getColumn(0);
         AtomicBoolean bool = new AtomicBoolean(false);
         column.setHeaderValue(bool.get());
         column.setHeaderRenderer(new CenterCheckBoxRenderer());
-
+//        tableHeader.getColumnModel().getColumns().asIterator().forEachRemaining(item -> {
+//            item.setHeaderRenderer(new CenterLabelRenderer(false));
+//        });
         tableHeader.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -206,6 +218,93 @@ public class EnvSettingDialog extends DialogWrapper {
         five.setMinWidth(160);
         five.setCellRenderer(new CenterLabelRenderer(false));
         five.setCellEditor(new NoCellEditor());
+
+
+        TableColumn six = jbTable.getColumnModel().getColumn(6);
+        six.setMaxWidth(157);
+        six.setMinWidth(157);
+        six.setCellRenderer(new TableCellRenderer() {
+
+            private final JButton editButton = new  JButton("编辑");
+
+            private final JButton deleteButton = new JButton("删除");
+
+            private final JPanel panel = new JPanel();
+
+            {
+                panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
+                panel.add(deleteButton);
+                panel.add(editButton);
+            }
+
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                RuntimeEnvironmentService.getService(service -> {
+                    RuntimeEnvironment environment = service.getById(String.valueOf(table.getValueAt(row, 1)));
+                    if(environment != null && environment.getIsDefault() == 1){
+                        deleteButton.setEnabled(false);
+                        deleteButton.setToolTipText("默认环境不可删除");
+                    }else {
+                        deleteButton.setEnabled(true);
+                    }
+                });
+                return panel;
+            }
+        });
+        six.setCellEditor(new AbstractTableCellEditor() {
+            private final JButton editButton = new  JButton("编辑");
+
+            private final JButton deleteButton = new JButton("删除");
+
+            private final JPanel panel = new JPanel();
+
+            private final AtomicInteger id = new AtomicInteger();
+
+            private final AtomicInteger currentRow = new AtomicInteger();
+
+            {
+                editButton.addActionListener(e -> {
+                    Messages.showInfoMessage("编辑","编辑内容");
+                });
+
+                deleteButton.addActionListener(e -> {
+                    int okCancel = Messages.showOkCancelDialog("确认要删除吗", "警告", "确认", "取消", AllIcons.General.Warning);
+                    if(Messages.OK == okCancel){
+                        if (jbTable.isEditing()) {
+                            jbTable.getCellEditor().stopCellEditing();
+                        }
+                        model.removeRow(currentRow.get());
+                        RuntimeEnvironmentService.getService(service -> {
+                            service.removeById(id.get());
+                        });
+                    }
+                });
+                panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
+                panel.add(deleteButton);
+                panel.add(editButton);
+            }
+
+            @Override
+            public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+                RuntimeEnvironmentService.getService(service -> {
+                    RuntimeEnvironment environment = service.getById(String.valueOf(table.getValueAt(row, 1)));
+                    if(environment != null && environment.getIsDefault() == 1){
+                        deleteButton.setEnabled(false);
+                        deleteButton.setToolTipText("默认环境不可删除");
+                    }else {
+                        id.set(Integer.parseInt(String.valueOf(table.getValueAt(row,1))));
+                        currentRow.set(row);
+                        deleteButton.setEnabled(true);
+                    }
+                });
+                return panel;
+            }
+
+            @Override
+            public Object getCellEditorValue() {
+                return null;
+            }
+        });
 
         return new JBScrollPane(jbTable);
     }

@@ -62,6 +62,11 @@ public class RuntimeEnvironment {
     private String vmValue;
 
     /**
+     * 1: 默认
+     */
+    private Integer isDefault;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)
@@ -73,6 +78,15 @@ public class RuntimeEnvironment {
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updated;
 
+    public Integer getIsDefault() {
+        return isDefault;
+    }
+
+    public RuntimeEnvironment setIsDefault(Integer isDefault) {
+        this.isDefault = isDefault;
+        return this;
+    }
+
     public static List<RuntimeEnvironment> buildInitList(Project project, Module module) {
         return Stream.of(new Pair<String, String>("dev", "开发环境"), new Pair<>("test", "测试环境"), new Pair<String, String>("prod", "生产环境"))
                 .map(item -> {
@@ -80,6 +94,7 @@ public class RuntimeEnvironment {
                     runtimeEnvironment.setProjectHash(project.getLocationHash())
                             .setProjectName(project.getName())
                             .setProjectPath(project.getBasePath())
+                            .setIsDefault(1)
                             .setModule(module.toString())
                             .setName(item.component1())
                             .setRemark(item.component2());

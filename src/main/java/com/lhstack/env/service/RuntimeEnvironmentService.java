@@ -113,6 +113,7 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
                     "    args_value TEXT,                           -- 参数值，运行时参数的JSON格式存储\n" +
                     "    env_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
                     "    vm_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
+                    "    is_default INTEGER,                            -- 环境变量值，环境变量的JSON格式存储\n" +
                     "    created DATETIME NOT NULL,                              -- 创建时间，记录创建时间戳\n" +
                     "    updated DATETIME NOT NULL                               -- 更新时间，记录最后更新时间戳\n" +
                     ");");
