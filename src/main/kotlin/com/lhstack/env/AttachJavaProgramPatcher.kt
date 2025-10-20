@@ -33,7 +33,6 @@ class AttachJavaProgramPatcher: JavaProgramPatcher() {
                         val argsMap = mutableMapOf<String, String>()
                         val vmArgs = mutableSetOf<String>()
                         service.globalEnvironment?.let { environment ->
-                            logger.info(environment.isDefault == 1)
                             if(environment.isDefault == 1){
                                 (environment.argsValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
                                     val array = line.split("=")
