@@ -82,8 +82,8 @@ class PluginImpl : IPlugin {
                             changeState.set(false)
                             ApplicationManager.getApplication().runWriteAction {
                                 RuntimeEnvironmentService.getService {
-                                    val list = it.getRuntimeEnvironments(project, this.selection)
-                                    val envId = it.getSelectEnvId(project, this.selection)
+                                    val list = it.getRuntimeEnvironments(project, p0)
+                                    val envId = it.getSelectEnvId(project, p0)
                                     val select: RuntimeEnvironment? = if (envId != null) {
                                         list.firstOrNull { item -> item.id == envId }?.also { env ->
                                             envTextField.text = env.envValue
@@ -194,6 +194,8 @@ class PluginImpl : IPlugin {
                                 }
                             }
                         }
+
+                        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
                     }
 
