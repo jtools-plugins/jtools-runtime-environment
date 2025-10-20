@@ -22,10 +22,7 @@ import com.lhstack.env.service.RuntimeEnvironment
 import com.lhstack.env.service.RuntimeEnvironmentService
 import com.lhstack.tools.plugins.*
 import java.awt.BorderLayout
-import javax.swing.Icon
-import javax.swing.JComponent
-import javax.swing.JLabel
-import javax.swing.JPanel
+import javax.swing.*
 
 
 class PluginImpl : IPlugin {
@@ -80,25 +77,30 @@ class PluginImpl : IPlugin {
                     override fun selectionChanged(p0: Module): Boolean {
                         if (p0 != selection) {
                             changeState.set(false)
-                            ApplicationManager.getApplication().runWriteAction {
-                                RuntimeEnvironmentService.getService {
-                                    val list = it.getRuntimeEnvironments(project, p0)
-                                    val envId = it.getSelectEnvId(project, p0)
-                                    val select: RuntimeEnvironment? = if (envId != null) {
-                                        list.firstOrNull { item -> item.id == envId }?.also { env ->
+                            RuntimeEnvironmentService.getService {
+                                val list = it.getRuntimeEnvironments(project, p0)
+                                val envId = it.getSelectEnvId(project, p0)
+
+                                val select: RuntimeEnvironment? = if (envId != null) {
+                                    list.firstOrNull { item -> item.id == envId }?.also { env ->
+                                        SwingUtilities.invokeLater {
                                             envTextField.text = env.envValue
                                             argsTextField.text = env.argsValue
                                             vmTextField.text= env.vmValue
                                         }
-                                    } else {
+                                        env
+                                    }
+                                } else {
+                                    SwingUtilities.invokeLater {
                                         list[0]?.also { env ->
                                             envTextField.text = env.envValue
                                             argsTextField.text = env.argsValue
                                             vmTextField.text= env.vmValue
                                         }
                                     }
-                                    envComboBox?.setItems(list, select)
+                                    list[0]
                                 }
+                                envComboBox?.setItems(list, select)
                             }
                             changeState.set(true)
                             return true
@@ -112,25 +114,30 @@ class PluginImpl : IPlugin {
                 envComboBox = object : AbstractComboBoxAction<RuntimeEnvironment>() {
 
                     init {
-                        ApplicationManager.getApplication().runWriteAction {
-                            RuntimeEnvironmentService.getService {
-                                val list = it.getRuntimeEnvironments(project, modulesBox.selection)
-                                val envId = it.getSelectEnvId(project, modulesBox.selection)
-                                val select: RuntimeEnvironment? = if (envId != null) {
-                                    list.firstOrNull { item -> item.id == envId }?.also { env ->
+                        RuntimeEnvironmentService.getService {
+                            val list = it.getRuntimeEnvironments(project, modulesBox.selection)
+                            val envId = it.getSelectEnvId(project, modulesBox.selection)
+                            val select: RuntimeEnvironment? = if (envId != null) {
+                                list.firstOrNull { item -> item.id == envId }?.also { env ->
+                                    SwingUtilities.invokeLater {
                                         envTextField.text = env.envValue
                                         argsTextField.text = env.argsValue
                                         vmTextField.text= env.vmValue
                                     }
-                                } else {
+                                    env
+                                }
+                            } else {
+                                SwingUtilities.invokeLater {
                                     list[0]?.also { env ->
                                         envTextField.text = env.envValue
                                         argsTextField.text = env.argsValue
                                         vmTextField.text= env.vmValue
                                     }
                                 }
-                                setItems(list, select)
+                                list[0]
                             }
+
+                            setItems(list, select)
                         }
                     }
 
@@ -152,15 +159,14 @@ class PluginImpl : IPlugin {
                     override fun selectionChanged(p0: RuntimeEnvironment): Boolean {
                         if (p0.id != selection?.id) {
                             changeState.set(false)
-                            ApplicationManager.getApplication().runWriteAction {
-                                RuntimeEnvironmentService.getService { service ->
-                                    service.updateSelectEnv(p0.id)
+                            RuntimeEnvironmentService.getService { service ->
+                                service.updateSelectEnv(p0.id)
+                                SwingUtilities.invokeLater {
                                     envTextField.text = p0.envValue
                                     argsTextField.text = p0.argsValue
                                     vmTextField.text= p0.vmValue
                                 }
                             }
-
                             changeState.set(true)
                             return true
                         }
