@@ -179,13 +179,9 @@ class PluginImpl : IPlugin {
                         "开启"
                     }, AllIcons.Actions.Selectall) {
                         override fun isSelected(p0: AnActionEvent): Boolean {
-                            var isActive = false
-                            ApplicationManager.getApplication().runReadAction {
-                                RuntimeEnvironmentService.getService { service ->
-                                    isActive = service.isActive(project, modulesBox.selection)
-                                }
+                            return ApplicationManager.getApplication().runReadAction<Boolean> {
+                                RuntimeEnvironmentService.execute { service ->  service.isActive(project, modulesBox.selection) }
                             }
-                            return isActive
                         }
 
                         override fun setSelected(p0: AnActionEvent, p1: Boolean) {
