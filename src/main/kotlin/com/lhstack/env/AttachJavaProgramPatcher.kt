@@ -27,59 +27,84 @@ class AttachJavaProgramPatcher: JavaProgramPatcher() {
             val project = p1.project
             p1.configurationModule.module?.let { module ->
                 RuntimeEnvironmentService.getService { service ->
-                    val logger = PluginImpl.loggers[project.locationHash]!!
+                    val logger = PluginImpl.loggers[project.locationHash]
                     try{
                         val envMap = mutableMapOf<String, String>()
                         val argsMap = mutableMapOf<String, String>()
                         val vmArgs = mutableSetOf<String>()
+                        
                         service.globalEnvironment?.let { environment ->
                             if(environment.isDefault == 1){
-                                (environment.argsValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                    val array = line.split("=")
-                                    argsMap[array[0].trim()] = array[1].trim()
-                                }
-                                (environment.vmValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                    vmArgs.add(line.trim())
-                                }
-                                (environment.envValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                    val array = line.split("=")
-                                    envMap[array[0].trim()] = array[1].trim()
-                                }
+                                parseKeyValueLines(environment.argsValue, argsMap)
+                                parseVmArgs(environment.vmValue, vmArgs)
+                                parseKeyValueLines(environment.envValue, envMap)
                             }
                         }
+                        
                         if(service.isActive(project, module)){
                             service.getSelectEnvId(project, module)?.also { envId ->
                                 service.getById(envId)?.also { environment ->
-                                    (environment.argsValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                        val array = line.split("=")
-                                        argsMap[array[0].trim()] = array[1].trim()
-                                    }
-                                    (environment.vmValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                        vmArgs.add(line.trim())
-                                    }
-                                    (environment.envValue?:"").split("\n").filter { it.isNotBlank() }.forEach { line ->
-                                        val array = line.split("=")
-                                        envMap[array[0].trim()] = array[1].trim()
-                                    }
+                                    parseKeyValueLines(environment.argsValue, argsMap)
+                                    parseVmArgs(environment.vmValue, vmArgs)
+                                    parseKeyValueLines(environment.envValue, envMap)
                                 }
                             }
-
                         }
+                        
                         envMap.forEach { (key, value) ->
-                            p2.addEnv(key,value)
+                            p2.addEnv(key, value)
                         }
 
                         argsMap.forEach { (key, value) ->
                             p2.programParametersList.add("$key=$value")
                         }
+                        
                         vmArgs.forEach {
                             p2.vmParametersList.add(it)
                         }
                     }catch (e:Throwable){
-                        logger.error(e.message + "\n" + e.stackTrace.joinToString("\n") { it.toString() })
+                        logger?.error(e.message + "\n" + e.stackTrace.joinToString("\n") { it.toString() })
                     }
                 }
             }
         }
+    }
+    
+    /**
+     * 解析键值对格式的行，支持 key=value 格式
+     * 值中可以包含等号
+     */
+    private fun parseKeyValueLines(content: String?, targetMap: MutableMap<String, String>) {
+        content?.split("\n")
+            ?.filter { it.isNotBlank() }
+            ?.forEach { line ->
+                val trimmedLine = line.trim()
+                val idx = trimmedLine.indexOf('=')
+                if (idx > 0) {
+                    val key = trimmedLine.substring(0, idx).trim()
+                    val value = if (idx < trimmedLine.length - 1) {
+                        trimmedLine.substring(idx + 1).trim()
+                    } else {
+                        ""
+                    }
+                    if (key.isNotEmpty()) {
+                        targetMap[key] = value
+                    }
+                }
+            }
+    }
+    
+    /**
+     * 解析VM参数，每行一个参数
+     */
+    private fun parseVmArgs(content: String?, targetSet: MutableSet<String>) {
+        content?.split("\n")
+            ?.filter { it.isNotBlank() }
+            ?.forEach { line ->
+                val trimmed = line.trim()
+                if (trimmed.isNotEmpty()) {
+                    targetSet.add(trimmed)
+                }
+            }
     }
 }

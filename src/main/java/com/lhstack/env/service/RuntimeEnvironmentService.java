@@ -26,14 +26,18 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMapper, RuntimeEnvironment> {
 
-    private static HikariDataSource dataSource = null;
-    private static MybatisConfiguration mybatisConfiguration = null;
-    private static SqlSessionFactory sqlSessionFactory = null;
+    private static volatile HikariDataSource dataSource = null;
+    private static volatile MybatisConfiguration mybatisConfiguration = null;
+    private static volatile SqlSessionFactory sqlSessionFactory = null;
+    private static final AtomicBoolean initialized = new AtomicBoolean(false);
+    private static final AtomicBoolean destroyed = new AtomicBoolean(false);
+    private static final Object lock = new Object();
     private final RuntimeEnvironmentActiveMapper runtimeEnvironmentActiveMapper;
 
     public RuntimeEnvironmentService(RuntimeEnvironmentMapper runtimeEnvironmentMapper, RuntimeEnvironmentActiveMapper runtimeEnvironmentActiveMapper) {
@@ -42,10 +46,20 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
     }
 
     public static void init() {
-        initDataSource();
-        initMybatisConfiguration();
-        initGlobalConfig();
-        initSqlSessionFactory();
+        if (initialized.compareAndSet(false, true)) {
+            synchronized (lock) {
+                try {
+                    destroyed.set(false);
+                    initDataSource();
+                    initMybatisConfiguration();
+                    initGlobalConfig();
+                    initSqlSessionFactory();
+                } catch (Throwable e) {
+                    initialized.set(false);
+                    throw new RuntimeException("Failed to initialize RuntimeEnvironmentService", e);
+                }
+            }
+        }
     }
 
     private static void initSqlSessionFactory() {
@@ -88,80 +102,112 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
 
     private static void initDataSource() {
         dataSource = new HikariDataSource();
-        File dir = new File(System.getProperty("user.home"), ".jtools/jtools-runtime-environment");
+        String userHome = System.getProperty("user.home");
+        File dir = new File(userHome, ".jtools/jtools-runtime-environment");
         if (!dir.exists()) {
             dir.mkdirs();
         }
         dataSource.setDriverClassName("org.sqlite.JDBC");
-        dataSource.setJdbcUrl(String.format("jdbc:sqlite://%s/.jtools/jtools-runtime-environment/data.db", System.getProperty("user.home")));
+        // 使用正确的路径分隔符
+        String dbPath = new File(dir, "data.db").getAbsolutePath().replace("\\", "/");
+        dataSource.setJdbcUrl("jdbc:sqlite:" + dbPath);
         dataSource.setAutoCommit(false);
         dataSource.setMinimumIdle(1);
         dataSource.setMaximumPoolSize(5);
         dataSource.setMaxLifetime(60000);
         dataSource.setIdleTimeout(30000);
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            dataSource.close();
-        }));
+        
         try (Connection connection = dataSource.getConnection()) {
             PreparedStatement preparedStatement = connection.prepareStatement("CREATE TABLE IF NOT EXISTS runtime_environment(\n" +
-                    "    id INTEGER PRIMARY KEY NOT NULL,                    -- 主键ID，唯一标识符\n" +
-                    "    project_hash TEXT NOT NULL,                         -- 项目哈希值，用于区分不同项目\n" +
-                    "    project_path TEXT NOT NULL,                         -- 项目路径，项目在文件系统中的位置\n" +
-                    "    project_name TEXT NOT NULL,                         -- 项目名称，项目的显示名称\n" +
-                    "    module TEXT NOT NULL,                               -- 模块名称，标识所属功能模块\n" +
-                    "    name TEXT NOT NULL,                                 -- 环境名称，运行环境的显示名称\n" +
-                    "    remark TEXT,                               -- 备注说明，对环境配置的详细描述\n" +
-                    "    args_value TEXT,                           -- 参数值，运行时参数的JSON格式存储\n" +
-                    "    env_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
-                    "    vm_value TEXT,                            -- 环境变量值，环境变量的JSON格式存储\n" +
-                    "    is_default INTEGER,                            -- 环境变量值，环境变量的JSON格式存储\n" +
-                    "    created DATETIME NOT NULL,                              -- 创建时间，记录创建时间戳\n" +
-                    "    updated DATETIME NOT NULL                               -- 更新时间，记录最后更新时间戳\n" +
+                    "    id INTEGER PRIMARY KEY NOT NULL,\n" +
+                    "    project_hash TEXT NOT NULL,\n" +
+                    "    project_path TEXT NOT NULL,\n" +
+                    "    project_name TEXT NOT NULL,\n" +
+                    "    module TEXT NOT NULL,\n" +
+                    "    name TEXT NOT NULL,\n" +
+                    "    remark TEXT,\n" +
+                    "    args_value TEXT,\n" +
+                    "    env_value TEXT,\n" +
+                    "    vm_value TEXT,\n" +
+                    "    is_default INTEGER,\n" +
+                    "    created DATETIME NOT NULL,\n" +
+                    "    updated DATETIME NOT NULL\n" +
                     ");");
             preparedStatement.execute();
-            preparedStatement = connection.prepareStatement("CREATE INDEX IF NOT EXISTS i_p_m \n" +
-                    "ON runtime_environment (project_hash, module);");
+            preparedStatement.close();
+            
+            preparedStatement = connection.prepareStatement("CREATE INDEX IF NOT EXISTS i_p_m ON runtime_environment (project_hash, module);");
             preparedStatement.execute();
+            preparedStatement.close();
 
             preparedStatement = connection.prepareStatement(
-                    "CREATE TABLE IF NOT EXISTS runtime_environment_active( \n" +
-                    "id INTEGER PRIMARY KEY NOT NULL, \n" +
-                    "project_hash TEXT, \n" +
+                    "CREATE TABLE IF NOT EXISTS runtime_environment_active(\n" +
+                    "id INTEGER PRIMARY KEY NOT NULL,\n" +
+                    "project_hash TEXT,\n" +
                     "module TEXT,\n" +
                     "enabled INTEGER NOT NULL DEFAULT 0,\n" +
                     "created DATETIME NOT NULL,\n" +
                     "updated DATETIME NOT NULL,\n" +
                     "env_id INTEGER\n" +
-                    ");\n");
+                    ");");
             preparedStatement.execute();
-            preparedStatement = connection.prepareStatement("CREATE INDEX  IF NOT EXISTS i_p_m_2 ON runtime_environment_active (project_hash,module);\n");
+            preparedStatement.close();
+            
+            preparedStatement = connection.prepareStatement("CREATE INDEX IF NOT EXISTS i_p_m_2 ON runtime_environment_active (project_hash, module);");
             preparedStatement.execute();
+            preparedStatement.close();
+            
             connection.commit();
         } catch (Throwable e) {
-            e.printStackTrace();
+            throw new RuntimeException("Failed to initialize database", e);
         }
     }
 
     public static void getService(Consumer<RuntimeEnvironmentService> serviceConsumer) {
+        if (!initialized.get() || destroyed.get() || sqlSessionFactory == null) {
+            return;
+        }
         try (SqlSession sqlSession = sqlSessionFactory.openSession(false)) {
             RuntimeEnvironmentMapper mapper = sqlSession.getMapper(RuntimeEnvironmentMapper.class);
             serviceConsumer.accept(new RuntimeEnvironmentService(mapper, sqlSession.getMapper(RuntimeEnvironmentActiveMapper.class)));
             sqlSession.commit();
+        } catch (Throwable e) {
+            // Log error but don't crash
+            e.printStackTrace();
         }
     }
 
     public static <T> T execute(Function<RuntimeEnvironmentService, T> function) {
+        if (!initialized.get() || destroyed.get() || sqlSessionFactory == null) {
+            return null;
+        }
         try (SqlSession sqlSession = sqlSessionFactory.openSession(false)) {
             RuntimeEnvironmentMapper mapper = sqlSession.getMapper(RuntimeEnvironmentMapper.class);
             T result = function.apply(new RuntimeEnvironmentService(mapper, sqlSession.getMapper(RuntimeEnvironmentActiveMapper.class)));
             sqlSession.commit();
             return result;
+        } catch (Throwable e) {
+            e.printStackTrace();
+            return null;
         }
     }
 
     public static void destroy() {
-        if(dataSource != null) {
-            dataSource.close();
+        if (destroyed.compareAndSet(false, true)) {
+            synchronized (lock) {
+                try {
+                    if (dataSource != null && !dataSource.isClosed()) {
+                        dataSource.close();
+                    }
+                } catch (Throwable e) {
+                    // Ignore close errors
+                } finally {
+                    dataSource = null;
+                    sqlSessionFactory = null;
+                    mybatisConfiguration = null;
+                    initialized.set(false);
+                }
+            }
         }
     }
 

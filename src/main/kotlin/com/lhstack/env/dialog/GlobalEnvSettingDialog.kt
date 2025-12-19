@@ -15,6 +15,7 @@ import com.intellij.ui.JBSplitter
 import com.intellij.util.ui.JBUI
 import com.lhstack.data.component.MultiLanguageTextField
 import com.lhstack.env.PluginImpl
+import com.lhstack.env.service.RuntimeEnvironment
 import com.lhstack.env.service.RuntimeEnvironmentService
 import com.lhstack.tools.plugins.Helper
 import java.awt.BorderLayout
@@ -24,7 +25,15 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 
 class GlobalEnvSettingDialog(val project: Project): DialogWrapper(project,false) {
-    private val globalEnvironment = RuntimeEnvironmentService.execute { it.globalEnvironment }
+    private val globalEnvironment = RuntimeEnvironmentService.execute { it.globalEnvironment } ?: RuntimeEnvironment().apply {
+        id = -1
+        name = "Global"
+        module = "Global"
+        projectPath = "Global"
+        projectName = "Global"
+        projectHash = "Global"
+        isDefault = 0
+    }
     private val envTextField = MultiLanguageTextField(PropertiesFileType.INSTANCE, project, globalEnvironment.envValue?:"").apply {
         this.document.addDocumentListener(object: DocumentListener{
             override fun documentChanged(event: DocumentEvent) {

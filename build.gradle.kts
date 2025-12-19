@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "0.0.1"
+version = "0.0.2"
 
 
 repositories {
@@ -31,7 +31,8 @@ dependencies {
     implementation("com.zaxxer:HikariCP:4.0.3")
     // https://mvnrepository.com/artifact/com.baomidou/mybatis-plus
     implementation("com.baomidou:mybatis-plus:3.5.3.1")
-    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
+//    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
+    implementation(files("C:/Users/1/.jtools/sdk/sdk.jar"))
     intellijPlatform{
         intellijIdeaCommunity("2022.3")
         bundledPlugin("com.intellij.java")

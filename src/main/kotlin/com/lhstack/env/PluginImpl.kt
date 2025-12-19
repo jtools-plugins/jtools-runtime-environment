@@ -79,26 +79,28 @@ class PluginImpl : IPlugin {
                             changeState.set(false)
                             RuntimeEnvironmentService.getService {
                                 val list = it.getRuntimeEnvironments(project, p0)
+                                if (list.isEmpty()) {
+                                    changeState.set(true)
+                                    return@getService
+                                }
                                 val envId = it.getSelectEnvId(project, p0)
 
                                 val select: RuntimeEnvironment? = if (envId != null) {
                                     list.firstOrNull { item -> item.id == envId }?.also { env ->
                                         SwingUtilities.invokeLater {
-                                            envTextField.text = env.envValue
-                                            argsTextField.text = env.argsValue
-                                            vmTextField.text= env.vmValue
+                                            envTextField.text = env.envValue ?: ""
+                                            argsTextField.text = env.argsValue ?: ""
+                                            vmTextField.text = env.vmValue ?: ""
                                         }
-                                        env
                                     }
                                 } else {
-                                    SwingUtilities.invokeLater {
-                                        list[0]?.also { env ->
-                                            envTextField.text = env.envValue
-                                            argsTextField.text = env.argsValue
-                                            vmTextField.text= env.vmValue
+                                    list.firstOrNull()?.also { env ->
+                                        SwingUtilities.invokeLater {
+                                            envTextField.text = env.envValue ?: ""
+                                            argsTextField.text = env.argsValue ?: ""
+                                            vmTextField.text = env.vmValue ?: ""
                                         }
                                     }
-                                    list[0]
                                 }
                                 envComboBox?.setItems(list, select)
                             }
@@ -115,26 +117,27 @@ class PluginImpl : IPlugin {
 
                     init {
                         RuntimeEnvironmentService.getService {
-                            val list = it.getRuntimeEnvironments(project, modulesBox.selection)
-                            val envId = it.getSelectEnvId(project, modulesBox.selection)
+                            val selection = modulesBox.selection ?: return@getService
+                            val list = it.getRuntimeEnvironments(project, selection)
+                            if (list.isEmpty()) return@getService
+                            
+                            val envId = it.getSelectEnvId(project, selection)
                             val select: RuntimeEnvironment? = if (envId != null) {
                                 list.firstOrNull { item -> item.id == envId }?.also { env ->
                                     SwingUtilities.invokeLater {
-                                        envTextField.text = env.envValue
-                                        argsTextField.text = env.argsValue
-                                        vmTextField.text= env.vmValue
+                                        envTextField.text = env.envValue ?: ""
+                                        argsTextField.text = env.argsValue ?: ""
+                                        vmTextField.text = env.vmValue ?: ""
                                     }
-                                    env
                                 }
                             } else {
-                                SwingUtilities.invokeLater {
-                                    list[0]?.also { env ->
-                                        envTextField.text = env.envValue
-                                        argsTextField.text = env.argsValue
-                                        vmTextField.text= env.vmValue
+                                list.firstOrNull()?.also { env ->
+                                    SwingUtilities.invokeLater {
+                                        envTextField.text = env.envValue ?: ""
+                                        argsTextField.text = env.argsValue ?: ""
+                                        vmTextField.text = env.vmValue ?: ""
                                     }
                                 }
-                                list[0]
                             }
 
                             setItems(list, select)
@@ -160,11 +163,11 @@ class PluginImpl : IPlugin {
                         if (p0.id != selection?.id) {
                             changeState.set(false)
                             RuntimeEnvironmentService.getService { service ->
-                                service.updateSelectEnv(p0.id)
+                                p0.id?.let { service.updateSelectEnv(it) }
                                 SwingUtilities.invokeLater {
-                                    envTextField.text = p0.envValue
-                                    argsTextField.text = p0.argsValue
-                                    vmTextField.text= p0.vmValue
+                                    envTextField.text = p0.envValue ?: ""
+                                    argsTextField.text = p0.argsValue ?: ""
+                                    vmTextField.text = p0.vmValue ?: ""
                                 }
                             }
                             changeState.set(true)
@@ -180,7 +183,8 @@ class PluginImpl : IPlugin {
                     }, AllIcons.Actions.Selectall) {
                         override fun isSelected(p0: AnActionEvent): Boolean {
                             return ApplicationManager.getApplication().runReadAction<Boolean> {
-                                RuntimeEnvironmentService.execute { service ->  service.isActive(project, modulesBox.selection) }
+                                val selection = modulesBox.selection ?: return@runReadAction false
+                                RuntimeEnvironmentService.execute { service -> service.isActive(project, selection) } ?: false
                             }
                         }
 
@@ -192,7 +196,7 @@ class PluginImpl : IPlugin {
                                     }else {
                                         p0.presentation.text = "开启"
                                     }
-                                    service.updateActive(envComboBox.selection, p1)
+                                    envComboBox.selection?.let { service.updateActive(it, p1) }
                                 }
                             }
                         }
@@ -255,8 +259,8 @@ class PluginImpl : IPlugin {
                 val globalEnvAction = object: AnAction({"全局环境"}, Helper.findIcon("globalEnv.svg", PluginImpl::class.java)){
                     override fun update(e: AnActionEvent) {
                         super.update(e)
-                        val isActive = RuntimeEnvironmentService.execute { it.globalEnvironmentActive() }
-                        Toggleable.setSelected(e.presentation,isActive)
+                        val isActive = RuntimeEnvironmentService.execute { it.globalEnvironmentActive() } ?: false
+                        Toggleable.setSelected(e.presentation, isActive)
                     }
                     override fun actionPerformed(p0: AnActionEvent) {
                         GlobalEnvSettingDialog(project).show()
@@ -359,5 +363,5 @@ class PluginImpl : IPlugin {
 
     override fun pluginDesc(): String = "为你的应用增加运行时的环境"
 
-    override fun pluginVersion(): String = "0.0.1"
+    override fun pluginVersion(): String = "0.0.2"
 }
