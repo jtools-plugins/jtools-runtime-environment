@@ -25,9 +25,10 @@ class AttachJavaProgramPatcher: JavaProgramPatcher() {
     ) {
         if(p1 is JavaRunConfigurationBase){
             val project = p1.project
+            val logger = PluginImpl.loggers[project.locationHash]
             p1.configurationModule.module?.let { module ->
+                // 注入插件配置的参数
                 RuntimeEnvironmentService.getService { service ->
-                    val logger = PluginImpl.loggers[project.locationHash]
                     try{
                         val envMap = mutableMapOf<String, String>()
                         val argsMap = mutableMapOf<String, String>()
@@ -65,6 +66,30 @@ class AttachJavaProgramPatcher: JavaProgramPatcher() {
                     }catch (e:Throwable){
                         logger?.error(e.message + "\n" + e.stackTrace.joinToString("\n") { it.toString() })
                     }
+                }
+                
+                // 输出完整启动参数到日志（不管是否注入都会输出）
+                try {
+                    logger?.info("=== 启动参数 [${module.name}] ===")
+                    
+                    val ideaVmParams = p2.vmParametersList.parameters
+                    if (ideaVmParams.isNotEmpty()) {
+                        logger?.info("JVM参数: \n${ideaVmParams.joinToString("\n")}")
+                    }
+                    
+                    val ideaProgramParams = p2.programParametersList.parameters
+                    if (ideaProgramParams.isNotEmpty()) {
+                        logger?.info("程序参数: \n${ideaProgramParams.joinToString("\n")}")
+                    }
+                    
+                    val allEnv = p2.env
+                    if (allEnv.isNotEmpty()) {
+                        logger?.info("环境变量: \n${allEnv.entries.joinToString("\n") { "${it.key}=${it.value}" }}")
+                    }
+                    
+                    logger?.info("==============================")
+                } catch (e: Throwable) {
+                    logger?.error(e.message + "\n" + e.stackTrace.joinToString("\n") { it.toString() })
                 }
             }
         }
