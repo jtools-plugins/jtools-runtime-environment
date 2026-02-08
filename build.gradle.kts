@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "0.0.3"
+version = "v4"
 
 
 repositories {

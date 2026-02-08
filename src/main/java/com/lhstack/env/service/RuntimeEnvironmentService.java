@@ -62,6 +62,8 @@ public class RuntimeEnvironmentService extends ServiceImpl<RuntimeEnvironmentMap
         }
     }
 
+
+
     private static void initSqlSessionFactory() {
         sqlSessionFactory = new MybatisSqlSessionFactoryBuilder()
                 .build(mybatisConfiguration);
