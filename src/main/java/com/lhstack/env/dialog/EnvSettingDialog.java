@@ -110,7 +110,10 @@ public class EnvSettingDialog extends DialogWrapper {
                                         }
                                     }
                                 }
-                                RuntimeEnvironmentService.execute(service -> service.removeBatchByIds(delIds));
+                                RuntimeEnvironmentService.execute(service -> {
+                                    service.removeBatchByIds(delIds);
+                                    return null;
+                                });
                                 refreshComboBox();
                             }
                         }

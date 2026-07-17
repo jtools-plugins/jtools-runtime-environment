@@ -1,6 +1,5 @@
 package com.lhstack.env.service;
 
-import com.baomidou.mybatisplus.annotation.*;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import kotlin.Pair;
@@ -10,11 +9,9 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-@TableName(value = "runtime_environment",autoResultMap = true)
 public class RuntimeEnvironment {
 
-    @TableId(type = IdType.AUTO)
-    private Integer id;
+       private Integer id;
 
     /**
      * 项目hash
@@ -69,14 +66,12 @@ public class RuntimeEnvironment {
     /**
      * 创建时间
      */
-    @TableField(fill = FieldFill.INSERT)
-    private LocalDateTime created;
+       private LocalDateTime created;
 
     /**
      * 更新时间
      */
-    @TableField(fill = FieldFill.INSERT_UPDATE)
-    private LocalDateTime updated;
+       private LocalDateTime updated;
 
     public Integer getIsDefault() {
         return isDefault;

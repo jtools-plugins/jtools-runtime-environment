@@ -71,6 +71,8 @@ APP_ENV=dev
 ## 构建
 
 ```bash
-./gradlew jar
 ./gradlew shadowJar
+
+# 安装到 JTools 的插件 JAR：
+# build/libs/jtools-runtime-environment-v4.jar
 ```

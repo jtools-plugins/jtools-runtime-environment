@@ -367,5 +367,5 @@ class PluginImpl : IPlugin {
 
     override fun pluginDesc(): String = "为你的应用增加运行时的环境"
 
-    override fun pluginVersion(): String = "v4"
+    override fun pluginVersion(): String = "v5"
 }

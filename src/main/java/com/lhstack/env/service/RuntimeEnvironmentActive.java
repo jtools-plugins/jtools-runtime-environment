@@ -1,14 +1,10 @@
 package com.lhstack.env.service;
 
-import com.baomidou.mybatisplus.annotation.*;
-
 import java.time.LocalDateTime;
 
-@TableName(value = "runtime_environment_active",autoResultMap = true)
 public class RuntimeEnvironmentActive {
 
-    @TableId(type = IdType.AUTO)
-    private Integer id;
+       private Integer id;
 
     private String projectHash;
 
@@ -27,14 +23,12 @@ public class RuntimeEnvironmentActive {
     /**
      * 创建时间
      */
-    @TableField(fill = FieldFill.INSERT)
-    private LocalDateTime created;
+       private LocalDateTime created;
 
     /**
      * 更新时间
      */
-    @TableField(fill = FieldFill.INSERT_UPDATE)
-    private LocalDateTime updated;
+       private LocalDateTime updated;
 
     public LocalDateTime getCreated() {
         return created;

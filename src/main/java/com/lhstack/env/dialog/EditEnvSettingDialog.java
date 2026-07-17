@@ -76,11 +76,7 @@ public class EditEnvSettingDialog extends DialogWrapper {
                     @Override
                     public void actionPerformed(ActionEvent e) {
                         Boolean result = RuntimeEnvironmentService.execute(service -> {
-                            Long total = service.lambdaQuery()
-                                    .eq(RuntimeEnvironment::getProjectHash, project.getLocationHash())
-                                    .eq(RuntimeEnvironment::getModule, module.toString())
-                                    .ne(runtimeEnvironment.getId() != null, RuntimeEnvironment::getId, runtimeEnvironment.getId())
-                                    .eq(RuntimeEnvironment::getName, runtimeEnvironment.getName()).count();
+                            long total = service.countByName(project, module, runtimeEnvironment);
                             if (total > 0) {
                                 Messages.showInfoMessage("环境名字已存在,请修改名字之后再保存或者更新", "提示");
                                 return false;

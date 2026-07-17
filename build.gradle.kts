@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "com.lhstack"
-version = "v4"
+version = "v5"
 
 
 repositories {
@@ -29,8 +29,6 @@ dependencies {
     implementation("org.springframework:spring-jdbc:5.3.39")
     // https://mvnrepository.com/artifact/com.zaxxer/HikariCP
     implementation("com.zaxxer:HikariCP:4.0.3")
-    // https://mvnrepository.com/artifact/com.baomidou/mybatis-plus
-    implementation("com.baomidou:mybatis-plus:3.5.3.1")
 //    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
     implementation(files("/Users/lhstack/.jtools/sdk/sdk.jar"))
     intellijPlatform{
@@ -57,10 +55,14 @@ tasks {
     }
 
     withType<ShadowJar> {
+        // JTools loads one self-contained plugin JAR; this is not an IntelliJ plugin ZIP.
+        archiveBaseName.set("jtools-runtime-environment")
+        archiveClassifier.set("")
+        dependsOn("generateManifest", "classes")
         transform(com.github.jengelman.gradle.plugins.shadow.transformers.ServiceFileTransformer::class.java)
         transform(com.github.jengelman.gradle.plugins.shadow.transformers.XmlAppendingTransformer::class.java)
         transform(com.github.jengelman.gradle.plugins.shadow.transformers.XmlAppendingTransformer::class.java)
-        exclude("META-INF/MANIFEST.MF","META-INF/*.SF","META-INF/*.DSA")
+        exclude("META-INF/MANIFEST.MF", "META-INF/*.SF", "META-INF/*.DSA")
         dependencies {
             exclude(dependency("com.jetbrains.*:.*:.*"))
             exclude(dependency("org.jetbrains.*:.*:.*"))
