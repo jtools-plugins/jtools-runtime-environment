@@ -14,6 +14,7 @@ import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBSplitter
+import com.intellij.util.Alarm
 import com.intellij.util.ui.JBUI
 import com.lhstack.data.component.MultiLanguageTextField
 import com.lhstack.env.dialog.EnvSettingDialog
@@ -31,6 +32,7 @@ class PluginImpl : IPlugin {
         val disposers = mutableMapOf<String, Disposable>()
         val components = mutableMapOf<String, JComponent>()
         val loggers = mutableMapOf<String, Logger>()
+        val tabActions = mutableMapOf<String, List<AnAction>>()
     }
 
     override fun pluginIcon(): Icon = Helper.findIcon("pane.svg", PluginImpl::class.java)
@@ -47,12 +49,27 @@ class PluginImpl : IPlugin {
             val vmTextField = MultiLanguageTextField(PlainTextFileType.INSTANCE, project, "")
             Disposer.register(disposable, envTextField)
             Disposer.register(disposable, argsTextField)
+            Disposer.register(disposable, vmTextField)
             JPanel(BorderLayout()).apply {
                 val modules = ModuleManager.getInstance(project).modules.filter { it ->
                     it.isMainModule()
                 }.toList()
                 val changeState = java.util.concurrent.atomic.AtomicBoolean(true)
                 var envComboBox: AbstractComboBoxAction<RuntimeEnvironment>? = null
+
+                // 统一在EDT上刷新文本框, 且在刷新期间关闭changeState, 防止documentChanged把新模块的文本写回旧环境
+                fun applyEnvToFields(env: RuntimeEnvironment) {
+                    SwingUtilities.invokeLater {
+                        changeState.set(false)
+                        try {
+                            envTextField.text = env.envValue ?: ""
+                            argsTextField.text = env.argsValue ?: ""
+                            vmTextField.text = env.vmValue ?: ""
+                        } finally {
+                            changeState.set(true)
+                        }
+                    }
+                }
 
                 val modulesBox = object : AbstractComboBoxAction<Module>() {
 
@@ -76,35 +93,20 @@ class PluginImpl : IPlugin {
 
                     override fun selectionChanged(p0: Module): Boolean {
                         if (p0 != selection) {
-                            changeState.set(false)
                             RuntimeEnvironmentService.getService {
                                 val list = it.getRuntimeEnvironments(project, p0)
                                 if (list.isEmpty()) {
-                                    changeState.set(true)
                                     return@getService
                                 }
                                 val envId = it.getSelectEnvId(project, p0)
 
-                                val select: RuntimeEnvironment? = if (envId != null) {
-                                    list.firstOrNull { item -> item.id == envId }?.also { env ->
-                                        SwingUtilities.invokeLater {
-                                            envTextField.text = env.envValue ?: ""
-                                            argsTextField.text = env.argsValue ?: ""
-                                            vmTextField.text = env.vmValue ?: ""
-                                        }
-                                    }
+                                val select: RuntimeEnvironment? = (if (envId != null) {
+                                    list.firstOrNull { item -> item.id == envId }
                                 } else {
-                                    list.firstOrNull()?.also { env ->
-                                        SwingUtilities.invokeLater {
-                                            envTextField.text = env.envValue ?: ""
-                                            argsTextField.text = env.argsValue ?: ""
-                                            vmTextField.text = env.vmValue ?: ""
-                                        }
-                                    }
-                                }
+                                    list.firstOrNull()
+                                })?.also { env -> applyEnvToFields(env) }
                                 envComboBox?.setItems(list, select)
                             }
-                            changeState.set(true)
                             return true
                         }
                         return false
@@ -120,25 +122,13 @@ class PluginImpl : IPlugin {
                             val selection = modulesBox.selection ?: return@getService
                             val list = it.getRuntimeEnvironments(project, selection)
                             if (list.isEmpty()) return@getService
-                            
+
                             val envId = it.getSelectEnvId(project, selection)
-                            val select: RuntimeEnvironment? = if (envId != null) {
-                                list.firstOrNull { item -> item.id == envId }?.also { env ->
-                                    SwingUtilities.invokeLater {
-                                        envTextField.text = env.envValue ?: ""
-                                        argsTextField.text = env.argsValue ?: ""
-                                        vmTextField.text = env.vmValue ?: ""
-                                    }
-                                }
+                            val select: RuntimeEnvironment? = (if (envId != null) {
+                                list.firstOrNull { item -> item.id == envId }
                             } else {
-                                list.firstOrNull()?.also { env ->
-                                    SwingUtilities.invokeLater {
-                                        envTextField.text = env.envValue ?: ""
-                                        argsTextField.text = env.argsValue ?: ""
-                                        vmTextField.text = env.vmValue ?: ""
-                                    }
-                                }
-                            }
+                                list.firstOrNull()
+                            })?.also { env -> applyEnvToFields(env) }
 
                             setItems(list, select)
                         }
@@ -161,16 +151,10 @@ class PluginImpl : IPlugin {
 
                     override fun selectionChanged(p0: RuntimeEnvironment): Boolean {
                         if (p0.id != selection?.id) {
-                            changeState.set(false)
                             RuntimeEnvironmentService.getService { service ->
                                 p0.id?.let { service.updateSelectEnv(it) }
-                                SwingUtilities.invokeLater {
-                                    envTextField.text = p0.envValue ?: ""
-                                    argsTextField.text = p0.argsValue ?: ""
-                                    vmTextField.text = p0.vmValue ?: ""
-                                }
+                                applyEnvToFields(p0)
                             }
-                            changeState.set(true)
                             return true
                         }
                         return false
@@ -205,49 +189,30 @@ class PluginImpl : IPlugin {
 
                     }
 
-                envTextField.addDocumentListener(object : DocumentListener {
-                    override fun documentChanged(event: DocumentEvent) {
-                        if (changeState.get()) {
-                            ApplicationManager.getApplication().runWriteAction {
-                                RuntimeEnvironmentService.getService { service ->
-                                    envComboBox.selection?.also { env ->
-                                        env.envValue = event.document.text
-                                        service.updateById(env)
+                // 防抖保存, 避免每次按键都写库; DB写入不需要runWriteAction
+                fun bindAutoSave(field: MultiLanguageTextField, apply: (RuntimeEnvironment, String) -> Unit) {
+                    val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, disposable)
+                    field.addDocumentListener(object : DocumentListener {
+                        override fun documentChanged(event: DocumentEvent) {
+                            if (changeState.get()) {
+                                val text = event.document.text
+                                alarm.cancelAllRequests()
+                                alarm.addRequest({
+                                    RuntimeEnvironmentService.getService { service ->
+                                        envComboBox.selection?.also { env ->
+                                            apply(env, text)
+                                            service.updateById(env)
+                                        }
                                     }
-                                }
+                                }, 300)
                             }
                         }
-                    }
-                })
-                vmTextField.addDocumentListener(object : DocumentListener {
-                    override fun documentChanged(event: DocumentEvent) {
-                        if (changeState.get()) {
-                            ApplicationManager.getApplication().runWriteAction {
-                                RuntimeEnvironmentService.getService { service ->
-                                    envComboBox.selection?.also { env ->
-                                        env.vmValue = event.document.text
-                                        service.updateById(env)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
+                    })
+                }
 
-                argsTextField.addDocumentListener(object : DocumentListener {
-                    override fun documentChanged(event: DocumentEvent) {
-                        if (changeState.get()) {
-                            ApplicationManager.getApplication().runWriteAction {
-                                RuntimeEnvironmentService.getService { service ->
-                                    envComboBox.selection?.also { env ->
-                                        env.argsValue = event.document.text
-                                        service.updateById(env)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                })
+                bindAutoSave(envTextField) { env, text -> env.envValue = text }
+                bindAutoSave(vmTextField) { env, text -> env.vmValue = text }
+                bindAutoSave(argsTextField) { env, text -> env.argsValue = text }
 
                 val settingAction = object:AnAction({"Settings"}, AllIcons.General.Settings) {
                     override fun actionPerformed(p0: AnActionEvent) {
@@ -267,20 +232,8 @@ class PluginImpl : IPlugin {
                     }
                 }
 
-                val actionManager = ActionManager.getInstance()
-                val toolbar =
-                    actionManager.createActionToolbar("JTools@RuntimeEnvironment@Toolbar", DefaultActionGroup().also {
-                        it.add(globalEnvAction)
-                        it.add(enabledAction)
-                        it.add(modulesBox)
-                        it.add(envComboBox)
-                        it.add(settingAction)
-                    }, true)
-                toolbar.targetComponent = this
+                tabActions[project.locationHash] = listOf(globalEnvAction, enabledAction, modulesBox, envComboBox, settingAction)
                 this.add(JPanel(BorderLayout()).apply {
-                    this.add(JPanel(BorderLayout()).apply {
-                        this.add(toolbar.component, BorderLayout.EAST)
-                    }, BorderLayout.NORTH)
                     this.add(JBSplitter(true).apply {
                         this.proportion = 0.667f
                         firstComponent = JBSplitter(true).apply {
@@ -317,6 +270,7 @@ class PluginImpl : IPlugin {
         super.closePanel(project, pluginPanel)
         disposers.remove(project.locationHash)?.let { Disposer.dispose(it) }
         components.remove(project.locationHash)
+        tabActions.remove(project.locationHash)
     }
 
     override fun openProject(project: Project, logger: Logger, openThisPage: Runnable?) {
@@ -353,6 +307,10 @@ class PluginImpl : IPlugin {
 
         }
 
+    }
+
+    override fun tabPanelActions(project: Project?, pluginPanel: JComponent?): List<AnAction?>? {
+        return project?.let { tabActions[it.locationHash] } ?: emptyList()
     }
 
     override fun functionCallings(project: Project?): List<FunctionCalling?>? {

@@ -232,6 +232,13 @@ public class RuntimeEnvironmentService {
         } catch (SQLException error) {
             throw sqlError("删除运行环境失败", error);
         }
+        // 清理引用该环境的激活记录, 避免悬空 env_id
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM runtime_environment_active WHERE env_id=?")) {
+            statement.setInt(1, id);
+            statement.executeUpdate();
+        } catch (SQLException error) {
+            throw sqlError("清理激活环境失败", error);
+        }
     }
 
     public RuntimeEnvironment getGlobalEnvironment() {

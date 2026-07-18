@@ -23,10 +23,6 @@ repositories {
 dependencies {
     // https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc
     implementation("org.xerial:sqlite-jdbc:3.50.3.0")
-    // https://mvnrepository.com/artifact/org.springframework/spring-core
-    implementation("org.springframework:spring-core:5.3.39")
-    // https://mvnrepository.com/artifact/org.springframework/spring-jdbc
-    implementation("org.springframework:spring-jdbc:5.3.39")
     // https://mvnrepository.com/artifact/com.zaxxer/HikariCP
     implementation("com.zaxxer:HikariCP:4.0.3")
 //    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))

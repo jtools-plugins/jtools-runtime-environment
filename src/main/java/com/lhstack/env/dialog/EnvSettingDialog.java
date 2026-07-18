@@ -41,6 +41,8 @@ public class EnvSettingDialog extends DialogWrapper {
 
     private DefaultTableModel model;
 
+    private final java.util.Set<Integer> defaultEnvIds = new java.util.HashSet<>();
+
     public EnvSettingDialog(Logger logger, Project project, Module module, AbstractComboBoxAction<RuntimeEnvironment> comboBox, @NotNull MultiLanguageTextField vmTextField, @NotNull MultiLanguageTextField argsTextField, @NotNull MultiLanguageTextField envTextField) {
         super(project, false);
         this.runtimeEnvironmentComboBox = comboBox;
@@ -53,28 +55,37 @@ public class EnvSettingDialog extends DialogWrapper {
         this.vmTextField = vmTextField;
         this.argsTextField = argsTextField;
         this.envTextField = envTextField;
+        model = new DefaultTableModel(new Object[0][], new Object[]{
+                "选择",
+                "ID",
+                "环境名称",
+                "描述",
+                "创建时间",
+                "更新时间",
+                "操作",
+        });
         RuntimeEnvironmentService.getService(service -> {
             List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
-            Object[][] array = runtimeEnvironments.stream().map(item -> new Object[]{
-                    false,
-                    String.valueOf(item.getId()),
-                    item.getName(),
-                    item.getRemark(),
-                    item.getCreated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                    item.getUpdated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-            }).toArray(Object[][]::new);
-            model = new DefaultTableModel(array, new Object[]{
-                    "选择",
-                    "ID",
-                    "环境名称",
-                    "描述",
-                    "创建时间",
-                    "更新时间",
-                    "操作",
-            });
+            for (RuntimeEnvironment item : runtimeEnvironments) {
+                if (item.getIsDefault() != null && item.getIsDefault() == 1) {
+                    defaultEnvIds.add(item.getId());
+                }
+                model.addRow(new Object[]{
+                        false,
+                        String.valueOf(item.getId()),
+                        item.getName(),
+                        item.getRemark(),
+                        item.getCreated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                        item.getUpdated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                });
+            }
         });
         this.jbTable = new JBTable(model);
         this.init();
+    }
+
+    private boolean isDefaultEnv(Object id) {
+        return defaultEnvIds.contains(Integer.parseInt(String.valueOf(id)));
     }
 
     @Override
@@ -126,15 +137,21 @@ public class EnvSettingDialog extends DialogWrapper {
     private void refreshComboBox() {
         RuntimeEnvironmentService.getService(service -> {
             List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
+            if (runtimeEnvironments.isEmpty()) {
+                return;
+            }
             RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
-            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream().filter(item -> item.getId().equals(selection.getId())).findFirst().orElseGet(() -> runtimeEnvironments.get(0));
-            runtimeEnvironmentComboBox.setItems(runtimeEnvironments,selectionRuntimeEnvironment);
+            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream()
+                    .filter(item -> selection != null && item.getId().equals(selection.getId()))
+                    .findFirst().orElseGet(() -> runtimeEnvironments.get(0));
+            runtimeEnvironmentComboBox.setItems(runtimeEnvironments, selectionRuntimeEnvironment);
             SwingUtilities.invokeLater(() -> {
                 envTextField.setText(selectionRuntimeEnvironment.getEnvValue());
                 vmTextField.setText(selectionRuntimeEnvironment.getVmValue());
                 argsTextField.setText(selectionRuntimeEnvironment.getArgsValue());
             });
-            service.updateActive(selectionRuntimeEnvironment,true);
+            // 保持用户原有的启用/禁用状态, 只更新选中的环境
+            service.updateSelectEnv(selectionRuntimeEnvironment.getId());
         });
     }
 
@@ -150,9 +167,7 @@ public class EnvSettingDialog extends DialogWrapper {
             public Component getTableCellRendererComponent(JTable table, Object value,
                                                            boolean isSelected, boolean hasFocus, int row, int column) {
                 if(row >= 0){
-                    Integer id = Integer.parseInt(String.valueOf(table.getValueAt(row, 1)));
-                    RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
-                    if(runtimeEnvironment.getIsDefault() == 1){
+                    if(isDefaultEnv(table.getValueAt(row, 1))){
                         this.setEnabled(false);
                         setSelected(false);
                     }else {
@@ -188,9 +203,7 @@ public class EnvSettingDialog extends DialogWrapper {
             public Component getTableCellEditorComponent(JTable table, Object value,
                                                          boolean isSelected, int row, int column) {
                 if(row >= 0){
-                    Integer id = Integer.parseInt(String.valueOf(table.getValueAt(row, 1)));
-                    RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
-                    if(runtimeEnvironment.getIsDefault() == 1){
+                    if(isDefaultEnv(table.getValueAt(row, 1))){
                         checkBox.setEnabled(false);
                         checkBox.setSelected(false);
                     }else {
@@ -271,10 +284,7 @@ public class EnvSettingDialog extends DialogWrapper {
                         cellEditor.stopCellEditing();
                     }
                     for (int j = 0; j < jbTable.getRowCount(); j++) {
-//                        jbTable.setValueAt(bool.get(), j, 0);
-                        Integer id = Integer.parseInt(String.valueOf(model.getValueAt(j,1)));
-                        RuntimeEnvironment runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
-                        if(runtimeEnvironment.getIsDefault() == 0){
+                        if(!isDefaultEnv(model.getValueAt(j,1))){
                             model.setValueAt(bool.get(), j, 0);
                         }
                     }
@@ -336,15 +346,12 @@ public class EnvSettingDialog extends DialogWrapper {
 
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                RuntimeEnvironmentService.getService(service -> {
-                    RuntimeEnvironment environment = service.getById(String.valueOf(table.getValueAt(row, 1)));
-                    if(environment != null && environment.getIsDefault() == 1){
-                        deleteButton.setEnabled(false);
-                        deleteButton.setToolTipText("默认环境不可删除");
-                    }else {
-                        deleteButton.setEnabled(true);
-                    }
-                });
+                if(isDefaultEnv(table.getValueAt(row, 1))){
+                    deleteButton.setEnabled(false);
+                    deleteButton.setToolTipText("默认环境不可删除");
+                }else {
+                    deleteButton.setEnabled(true);
+                }
                 return panel;
             }
         });
@@ -387,17 +394,14 @@ public class EnvSettingDialog extends DialogWrapper {
 
             @Override
             public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-                RuntimeEnvironmentService.getService(service -> {
-                    RuntimeEnvironment environment = service.getById(String.valueOf(table.getValueAt(row, 1)));
-                    if(environment != null && environment.getIsDefault() == 1){
-                        deleteButton.setEnabled(false);
-                        deleteButton.setToolTipText("默认环境不可删除");
-                    }else {
-                        deleteButton.setEnabled(true);
-                    }
-                    id.set(Integer.parseInt(String.valueOf(table.getValueAt(row,1))));
-                    currentRow.set(row);
-                });
+                if(isDefaultEnv(table.getValueAt(row, 1))){
+                    deleteButton.setEnabled(false);
+                    deleteButton.setToolTipText("默认环境不可删除");
+                }else {
+                    deleteButton.setEnabled(true);
+                }
+                id.set(Integer.parseInt(String.valueOf(table.getValueAt(row,1))));
+                currentRow.set(row);
                 return panel;
             }
 

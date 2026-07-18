@@ -119,7 +119,7 @@ public class EditEnvSettingDialog extends DialogWrapper {
                             }
                             return true;
                         });
-                        if (result) {
+                        if (Boolean.TRUE.equals(result)) {
                             refreshComboBox();
                         }
                     }
@@ -136,10 +136,16 @@ public class EditEnvSettingDialog extends DialogWrapper {
     private void refreshComboBox() {
         RuntimeEnvironmentService.getService(service -> {
             List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
+            if (runtimeEnvironments.isEmpty()) {
+                return;
+            }
             RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
-            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream().filter(item -> item.getId().equals(selection.getId())).findFirst().orElseGet(() -> runtimeEnvironments.get(0));
+            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream()
+                    .filter(item -> selection != null && item.getId().equals(selection.getId()))
+                    .findFirst().orElseGet(() -> runtimeEnvironments.get(0));
             runtimeEnvironmentComboBox.setItems(runtimeEnvironments, selectionRuntimeEnvironment);
-            service.updateActive(selectionRuntimeEnvironment, true);
+            // 保持用户原有的启用/禁用状态, 只更新选中的环境
+            service.updateSelectEnv(selectionRuntimeEnvironment.getId());
         });
     }
 

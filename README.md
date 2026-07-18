@@ -1,6 +1,6 @@
 # 运行时环境插件
 
-版本：v4
+版本：v5
 
 IntelliJ IDEA 插件，用于管理 Java 项目的运行时环境变量、JVM 参数和程序参数。
 
@@ -74,5 +74,5 @@ APP_ENV=dev
 ./gradlew shadowJar
 
 # 安装到 JTools 的插件 JAR：
-# build/libs/jtools-runtime-environment-v4.jar
+# build/libs/jtools-runtime-environment-v5.jar
 ```
