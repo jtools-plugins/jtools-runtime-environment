@@ -26,7 +26,8 @@ dependencies {
     // https://mvnrepository.com/artifact/com.zaxxer/HikariCP
     implementation("com.zaxxer:HikariCP:4.0.3")
 //    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
-    implementation(files("/Users/lhstack/.jtools/sdk/sdk.jar"))
+//    implementation(files("/Users/lhstack/.jtools/sdk/sdk.jar"))
+    implementation(files("C:/Users/lhstack/.jtools/sdk/sdk.jar"))
     intellijPlatform{
         intellijIdeaCommunity("2022.3")
         bundledPlugin("com.intellij.java")

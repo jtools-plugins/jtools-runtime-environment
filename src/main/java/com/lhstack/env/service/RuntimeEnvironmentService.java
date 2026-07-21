@@ -124,29 +124,49 @@ public class RuntimeEnvironmentService {
 
     private static <T> T withConnection(Function<RuntimeEnvironmentService, T> function) {
         if (!initialized.get() || destroyed.get() || dataSource == null) return null;
-        try (Connection connection = dataSource.getConnection()) {
+        Connection connection = null;
+        try {
+            connection = dataSource.getConnection();
             connection.setAutoCommit(false);
             T result = function.apply(new RuntimeEnvironmentService(connection));
             connection.commit();
             return result;
         } catch (Throwable error) {
-            throw new IllegalStateException("Runtime environment database operation failed", error);
+            if (connection != null) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackError) {
+                    error.addSuppressed(rollbackError);
+                }
+            }
+            String detail = error.getMessage();
+            if (detail == null || detail.isBlank()) detail = error.getClass().getName();
+            throw new IllegalStateException("Runtime environment database operation failed: " + detail, error);
+        } finally {
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (SQLException closeError) {
+                    // connection already failed or closed; ignore close failure
+                }
+            }
         }
     }
 
     public void save(RuntimeEnvironment environment) {
         LocalDateTime now = LocalDateTime.now();
         environment.setCreated(now).setUpdated(now);
-        String sqlWithId = "INSERT INTO runtime_environment(" + ENVIRONMENT_COLUMNS_WITH_ID + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
-        String sqlWithoutId = "INSERT INTO runtime_environment(" + ENVIRONMENT_COLUMNS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?)";
-        try (PreparedStatement statement = environment.getId() == null
-                ? connection.prepareStatement(sqlWithoutId, Statement.RETURN_GENERATED_KEYS)
-                : connection.prepareStatement(sqlWithId)) {
+        boolean hasId = environment.getId() != null;
+        String columns = hasId ? ENVIRONMENT_COLUMNS_WITH_ID : ENVIRONMENT_COLUMNS;
+        String sql = "INSERT INTO runtime_environment(" + columns + ") VALUES(" + placeholders(columnCount(columns)) + ")";
+        try (PreparedStatement statement = hasId
+                ? connection.prepareStatement(sql)
+                : connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             int index = 1;
-            if (environment.getId() != null) statement.setInt(index++, environment.getId());
+            if (hasId) statement.setInt(index++, environment.getId());
             bindEnvironment(statement, environment, index);
             statement.executeUpdate();
-            if (environment.getId() == null) {
+            if (!hasId) {
                 try (ResultSet keys = statement.getGeneratedKeys()) {
                     if (keys.next()) environment.setId(keys.getInt(1));
                     else throw new IllegalStateException("插入环境后未获得 id");
@@ -430,4 +450,22 @@ public class RuntimeEnvironmentService {
     private static final String ENVIRONMENT_COLUMNS =
             "project_hash,project_path,project_name,module,name,remark,args_value,env_value,vm_value,is_default,created,updated";
     private static final String ENVIRONMENT_COLUMNS_WITH_ID = "id," + ENVIRONMENT_COLUMNS;
+
+    private static int columnCount(String columns) {
+        int count = 1;
+        for (int i = 0; i < columns.length(); i++) {
+            if (columns.charAt(i) == ',') count++;
+        }
+        return count;
+    }
+
+    private static String placeholders(int count) {
+        if (count <= 0) throw new IllegalArgumentException("placeholder count must be positive");
+        StringBuilder builder = new StringBuilder(count * 2 - 1);
+        for (int i = 0; i < count; i++) {
+            if (i > 0) builder.append(',');
+            builder.append('?');
+        }
+        return builder.toString();
+    }
 }
