@@ -14,6 +14,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBSplitter
 import com.intellij.util.ui.JBUI
 import com.lhstack.data.component.MultiLanguageTextField
+import com.lhstack.env.AsyncLoader
 import com.lhstack.env.PluginImpl
 import com.lhstack.env.service.RuntimeEnvironment
 import com.lhstack.env.service.RuntimeEnvironmentService
@@ -24,15 +25,28 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-class GlobalEnvSettingDialog(val project: Project): DialogWrapper(project,false) {
-    private val globalEnvironment = RuntimeEnvironmentService.execute { it.globalEnvironment } ?: RuntimeEnvironment().apply {
-        id = -1
-        name = "Global"
-        module = "Global"
-        projectPath = "Global"
-        projectName = "Global"
-        projectHash = "Global"
-        isDefault = 0
+/**
+ * 全局环境编辑对话框。
+ *
+ * 全局环境数据由 [open] 在后台线程加载后传入, 构造器不访问数据库。
+ */
+class GlobalEnvSettingDialog private constructor(
+    val project: Project,
+    private val globalEnvironment: RuntimeEnvironment
+): DialogWrapper(project,false) {
+
+    companion object {
+        /** 在后台线程读取全局环境后再在EDT上打开对话框, 避免在EDT访问数据库。 */
+        fun open(project: Project) {
+            AsyncLoader.loadThenOnEdt(
+                { RuntimeEnvironmentService.execute { it.globalEnvironment } },
+                { environment ->
+                    if (environment != null) {
+                        GlobalEnvSettingDialog(project, environment).show()
+                    }
+                }
+            )
+        }
     }
     private val envTextField = MultiLanguageTextField(PropertiesFileType.INSTANCE, project, globalEnvironment.envValue?:"").apply {
         this.document.addDocumentListener(object: DocumentListener{
@@ -111,7 +125,10 @@ class GlobalEnvSettingDialog(val project: Project): DialogWrapper(project,false)
         globalEnvironment.envValue = envTextField.text
         globalEnvironment.vmValue = vmTextField.text
         globalEnvironment.argsValue = argsTextField.text
-        RuntimeEnvironmentService.getService { it.updateById(globalEnvironment) }
+        // 写库挪到后台线程, 不阻塞EDT
+        AsyncLoader.runInBackground {
+            RuntimeEnvironmentService.getService { it.updateById(globalEnvironment) }
+        }
     }
 
     override fun createCenterPanel(): JComponent = JPanel(BorderLayout()).apply {

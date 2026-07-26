@@ -5,7 +5,6 @@ import com.intellij.icons.AllIcons
 import com.intellij.lang.properties.PropertiesFileType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileTypes.PlainTextFileType
@@ -71,6 +70,27 @@ class PluginImpl : IPlugin {
                     }
                 }
 
+                // 数据库读取放到后台线程, 加载完成后回到EDT刷新下拉框与文本框
+                fun loadEnvironmentsAsync(module: Module) {
+                    AsyncLoader.loadThenOnEdt({
+                        RuntimeEnvironmentService.execute { service ->
+                            val list = service.getRuntimeEnvironments(project, module)
+                            val envId = service.getSelectEnvId(project, module)
+                            val select = if (envId != null) {
+                                list.firstOrNull { item -> item.id == envId }
+                            } else {
+                                list.firstOrNull()
+                            }
+                            list to select
+                        }
+                    }, { loaded ->
+                        val list = loaded?.first ?: return@loadThenOnEdt
+                        if (list.isEmpty()) return@loadThenOnEdt
+                        loaded.second?.also { env -> applyEnvToFields(env) }
+                        envComboBox?.setItems(list, loaded.second)
+                    })
+                }
+
                 val modulesBox = object : AbstractComboBoxAction<Module>() {
 
                     init {
@@ -83,30 +103,18 @@ class PluginImpl : IPlugin {
                         )
                     }
 
+                    // 无选中项时平台会传入null, 因此参数必须可空
                     override fun update(
-                        p0: Module,
+                        p0: Module?,
                         p1: Presentation,
                         p2: Boolean
                     ) {
-                        p1.text = p0.name
+                        p1.text = p0?.name ?: "无模块"
                     }
 
-                    override fun selectionChanged(p0: Module): Boolean {
-                        if (p0 != selection) {
-                            RuntimeEnvironmentService.getService {
-                                val list = it.getRuntimeEnvironments(project, p0)
-                                if (list.isEmpty()) {
-                                    return@getService
-                                }
-                                val envId = it.getSelectEnvId(project, p0)
-
-                                val select: RuntimeEnvironment? = (if (envId != null) {
-                                    list.firstOrNull { item -> item.id == envId }
-                                } else {
-                                    list.firstOrNull()
-                                })?.also { env -> applyEnvToFields(env) }
-                                envComboBox?.setItems(list, select)
-                            }
+                    override fun selectionChanged(p0: Module?): Boolean {
+                        if (p0 != null && p0 != selection) {
+                            loadEnvironmentsAsync(p0)
                             return true
                         }
                         return false
@@ -117,30 +125,19 @@ class PluginImpl : IPlugin {
 
                 envComboBox = object : AbstractComboBoxAction<RuntimeEnvironment>() {
 
-                    init {
-                        RuntimeEnvironmentService.getService {
-                            val selection = modulesBox.selection ?: return@getService
-                            val list = it.getRuntimeEnvironments(project, selection)
-                            if (list.isEmpty()) return@getService
-
-                            val envId = it.getSelectEnvId(project, selection)
-                            val select: RuntimeEnvironment? = (if (envId != null) {
-                                list.firstOrNull { item -> item.id == envId }
-                            } else {
-                                list.firstOrNull()
-                            })?.also { env -> applyEnvToFields(env) }
-
-                            setItems(list, select)
-                        }
-                    }
-
+                    // 环境列表异步加载, 加载完成前平台会传入null, 因此参数必须可空
                     override fun update(
-                        p0: RuntimeEnvironment,
+                        p0: RuntimeEnvironment?,
                         p1: Presentation,
                         p2: Boolean
                     ) {
+                        if (p0 == null) {
+                            p1.text = "加载中.."
+                            p1.description = null
+                            return
+                        }
                         p1.text = "${p0.name}: ${
-                            if ((p0.remark?.length?:0) > 5) {
+                            if ((p0.remark?.length ?: 0) > 5) {
                                 p0.remark?.substring(0, 3) + ".."
                             } else {
                                 p0.remark
@@ -149,15 +146,17 @@ class PluginImpl : IPlugin {
                         p1.description = p0.remark
                     }
 
-                    override fun selectionChanged(p0: RuntimeEnvironment): Boolean {
-                        if (p0.id != selection?.id) {
-                            RuntimeEnvironmentService.getService { service ->
-                                p0.id?.let { service.updateSelectEnv(it) }
-                                applyEnvToFields(p0)
-                            }
-                            return true
+                    override fun selectionChanged(p0: RuntimeEnvironment?): Boolean {
+                        if (p0 == null || p0.id == selection?.id) {
+                            return false
                         }
-                        return false
+                        applyEnvToFields(p0)
+                        p0.id?.let { envId ->
+                            AsyncLoader.runInBackground {
+                                RuntimeEnvironmentService.getService { service -> service.updateSelectEnv(envId) }
+                            }
+                        }
+                        return true
                     }
 
                 }
@@ -165,23 +164,19 @@ class PluginImpl : IPlugin {
                     object : ToggleAction({
                         "开启"
                     }, AllIcons.Actions.Selectall) {
+                        // getActionUpdateThread=BGT, 因此isSelected已在后台线程执行, 可直接查库
                         override fun isSelected(p0: AnActionEvent): Boolean {
-                            return ApplicationManager.getApplication().runReadAction<Boolean> {
-                                val selection = modulesBox.selection ?: return@runReadAction false
-                                RuntimeEnvironmentService.execute { service -> service.isActive(project, selection) } ?: false
-                            }
+                            val selection = modulesBox.selection ?: return false
+                            return RuntimeEnvironmentService.execute { service -> service.isActive(project, selection) }
+                                ?: false
                         }
 
+                        // setSelected在EDT触发, 写库必须挪到后台; 数据库写入与IDE写锁无关
                         override fun setSelected(p0: AnActionEvent, p1: Boolean) {
-                            ApplicationManager.getApplication().runWriteAction{
-                                RuntimeEnvironmentService.getService { service ->
-                                    if(p1){
-                                        p0.presentation.text = "关闭"
-                                    }else {
-                                        p0.presentation.text = "开启"
-                                    }
-                                    envComboBox.selection?.let { service.updateActive(it, p1) }
-                                }
+                            p0.presentation.text = if (p1) "关闭" else "开启"
+                            val env = envComboBox.selection ?: return
+                            AsyncLoader.runInBackground {
+                                RuntimeEnvironmentService.getService { service -> service.updateActive(env, p1) }
                             }
                         }
 
@@ -214,25 +209,43 @@ class PluginImpl : IPlugin {
                 bindAutoSave(vmTextField) { env, text -> env.vmValue = text }
                 bindAutoSave(argsTextField) { env, text -> env.argsValue = text }
 
-                val settingAction = object:AnAction({"Settings"}, AllIcons.General.Settings) {
+                val settingAction = object : AnAction({ "Settings" }, AllIcons.General.Settings) {
                     override fun actionPerformed(p0: AnActionEvent) {
-                        val envSettingDialog = EnvSettingDialog(logger,project,modulesBox.selection,envComboBox,vmTextField,argsTextField,envTextField)
+                        val envSettingDialog = EnvSettingDialog(
+                            logger,
+                            project,
+                            modulesBox.selection,
+                            envComboBox,
+                            vmTextField,
+                            argsTextField,
+                            envTextField
+                        )
                         envSettingDialog.show()
                     }
                 }
 
-                val globalEnvAction = object: AnAction({"全局环境"}, Helper.findIcon("globalEnv.svg", PluginImpl::class.java)){
-                    override fun update(e: AnActionEvent) {
-                        super.update(e)
-                        val isActive = RuntimeEnvironmentService.execute { it.globalEnvironmentActive() } ?: false
-                        Toggleable.setSelected(e.presentation, isActive)
-                    }
-                    override fun actionPerformed(p0: AnActionEvent) {
-                        GlobalEnvSettingDialog(project).show()
-                    }
-                }
+                val globalEnvAction =
+                    object : AnAction({ "全局环境" }, Helper.findIcon("globalEnv.svg", PluginImpl::class.java)) {
+                        // update查库属于慢操作, 必须在BGT执行; 否则在EDT上触发SlowOperations断言, 被withConnection包装成数据库异常
+                        override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
-                tabActions[project.locationHash] = listOf(globalEnvAction, enabledAction, modulesBox, envComboBox, settingAction)
+                        override fun update(e: AnActionEvent) {
+                            super.update(e)
+                            val isActive = RuntimeEnvironmentService.execute { it.globalEnvironmentActive() } ?: false
+                            Toggleable.setSelected(e.presentation, isActive)
+                        }
+
+                        override fun actionPerformed(p0: AnActionEvent) {
+                            GlobalEnvSettingDialog.open(project)
+                        }
+                    }
+
+                tabActions[project.locationHash] =
+                    listOf(globalEnvAction, enabledAction, modulesBox, envComboBox, settingAction)
+
+                // 面板先返回, 初始环境数据在后台加载完成后再回EDT填充
+                modulesBox.selection?.let { loadEnvironmentsAsync(it) }
+
                 this.add(JPanel(BorderLayout()).apply {
                     this.add(JBSplitter(true).apply {
                         this.proportion = 0.667f
@@ -296,14 +309,14 @@ class PluginImpl : IPlugin {
     }
 
     override fun unInstall() {
-        try{
+        try {
             AttachJavaProgramPatcher.uninstall()
-        }catch (e:Throwable){
+        } catch (e: Throwable) {
 
         }
-        try{
+        try {
             RuntimeEnvironmentService.destroy()
-        }catch (e:Throwable){
+        } catch (e: Throwable) {
 
         }
 
@@ -325,5 +338,5 @@ class PluginImpl : IPlugin {
 
     override fun pluginDesc(): String = "为你的应用增加运行时的环境"
 
-    override fun pluginVersion(): String = "v5"
+    override fun pluginVersion(): String = "v6"
 }

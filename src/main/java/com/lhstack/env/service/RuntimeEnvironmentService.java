@@ -123,7 +123,9 @@ public class RuntimeEnvironmentService {
     }
 
     private static <T> T withConnection(Function<RuntimeEnvironmentService, T> function) {
-        if (!initialized.get() || destroyed.get() || dataSource == null) return null;
+        if (!initialized.get() || destroyed.get() || dataSource == null) {
+            throw new IllegalStateException("运行环境数据库未初始化或已关闭");
+        }
         Connection connection = null;
         try {
             connection = dataSource.getConnection();
@@ -132,24 +134,41 @@ public class RuntimeEnvironmentService {
             connection.commit();
             return result;
         } catch (Throwable error) {
-            if (connection != null) {
-                try {
-                    connection.rollback();
-                } catch (SQLException rollbackError) {
-                    error.addSuppressed(rollbackError);
-                }
-            }
-            String detail = error.getMessage();
-            if (detail == null || detail.isBlank()) detail = error.getClass().getName();
-            throw new IllegalStateException("Runtime environment database operation failed: " + detail, error);
+            rollbackQuietly(connection, error);
+            throw asFailure(error);
         } finally {
-            if (connection != null) {
-                try {
-                    connection.close();
-                } catch (SQLException closeError) {
-                    // connection already failed or closed; ignore close failure
-                }
-            }
+            closeQuietly(connection);
+        }
+    }
+
+    /**
+     * 只包装确实来自 JDBC 的受检异常。
+     * 运行时异常按原样抛出, 避免把 NPE、平台线程断言、取消异常等真实根因
+     * 统一伪装成"数据库操作失败"而无法定位。
+     */
+    private static RuntimeException asFailure(Throwable error) {
+        if (error instanceof Error) throw (Error) error;
+        if (error instanceof RuntimeException) return (RuntimeException) error;
+        String detail = error.getMessage();
+        if (detail == null || detail.isBlank()) detail = error.getClass().getName();
+        return new IllegalStateException("运行环境数据库操作失败: " + detail, error);
+    }
+
+    private static void rollbackQuietly(Connection connection, Throwable error) {
+        if (connection == null) return;
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackError) {
+            error.addSuppressed(rollbackError);
+        }
+    }
+
+    private static void closeQuietly(Connection connection) {
+        if (connection == null) return;
+        try {
+            connection.close();
+        } catch (SQLException closeError) {
+            // 连接已失效或已关闭, 关闭失败不影响调用方结果
         }
     }
 
@@ -262,9 +281,9 @@ public class RuntimeEnvironmentService {
     }
 
     public RuntimeEnvironment getGlobalEnvironment() {
-        RuntimeEnvironment environment = getById(-1);
+        RuntimeEnvironment environment = getById(GLOBAL_ENVIRONMENT_ID);
         if (environment == null) {
-            environment = new RuntimeEnvironment().setId(-1).setName("Global").setModule("Global")
+            environment = new RuntimeEnvironment().setId(GLOBAL_ENVIRONMENT_ID).setName("Global").setModule("Global")
                     .setProjectPath("Global").setProjectName("Global").setProjectHash("Global").setIsDefault(0);
             save(environment);
         }
@@ -272,13 +291,18 @@ public class RuntimeEnvironmentService {
     }
 
     public boolean globalEnvironmentActive() {
-        return getGlobalEnvironment().getIsDefault() == 1;
+        return isEnabled(getGlobalEnvironment().getIsDefault());
     }
 
     public void globalEnvironmentUpdateActive() {
         RuntimeEnvironment environment = getGlobalEnvironment();
-        environment.setIsDefault(environment.getIsDefault() == 0 ? 1 : 0);
+        environment.setIsDefault(isEnabled(environment.getIsDefault()) ? 0 : 1);
         updateById(environment);
+    }
+
+    /** is_default / enabled 列允许 NULL, NULL 视为未启用。 */
+    private static boolean isEnabled(Integer flag) {
+        return flag != null && flag == 1;
     }
 
     public List<RuntimeEnvironment> getRuntimeEnvironments(Project project, Module module) {
@@ -302,7 +326,7 @@ public class RuntimeEnvironmentService {
 
     public Boolean isActive(Project project, Module module) {
         RuntimeEnvironmentActive active = findActive(project.getLocationHash(), module.toString());
-        return active != null && Integer.valueOf(1).equals(active.getEnabled());
+        return active != null && isEnabled(active.getEnabled());
     }
 
     public void updateActive(RuntimeEnvironment environment, boolean enabled) {
@@ -446,6 +470,11 @@ public class RuntimeEnvironmentService {
         if (dataSource != null && !dataSource.isClosed()) dataSource.close();
         dataSource = null;
     }
+
+    /**
+     * 全局环境固定占用 id = -1, 与按项目/模块划分的普通环境区分。
+     */
+    public static final int GLOBAL_ENVIRONMENT_ID = -1;
 
     private static final String ENVIRONMENT_COLUMNS =
             "project_hash,project_path,project_name,module,name,remark,args_value,env_value,vm_value,is_default,created,updated";

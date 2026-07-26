@@ -13,6 +13,7 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.JBUI;
 import com.lhstack.data.component.MultiLanguageTextField;
+import com.lhstack.env.AsyncLoader;
 import com.lhstack.env.PluginImpl;
 import com.lhstack.env.service.RuntimeEnvironment;
 import com.lhstack.env.service.RuntimeEnvironmentService;
@@ -46,8 +47,13 @@ public class EditEnvSettingDialog extends DialogWrapper {
     private final DefaultTableModel model;
     private RuntimeEnvironment runtimeEnvironment;
 
+    /**
+     * 环境数据由调用方在后台线程加载后传入, 构造器不访问数据库。
+     *
+     * @param environment 新增时传入空实例, 编辑时传入已加载的环境
+     */
     public EditEnvSettingDialog(Project project, DefaultTableModel model, Module module, JTable table, AbstractComboBoxAction<RuntimeEnvironment> comboBox,
-                                Integer id, MultiLanguageTextField vmTextField, MultiLanguageTextField argsTextField, MultiLanguageTextField envTextField) {
+                                RuntimeEnvironment environment, MultiLanguageTextField vmTextField, MultiLanguageTextField argsTextField, MultiLanguageTextField envTextField) {
         super(project, true);
         this.table = table;
         this.module = module;
@@ -57,15 +63,30 @@ public class EditEnvSettingDialog extends DialogWrapper {
         this.envTextField = envTextField;
         this.model = model;
         this.runtimeEnvironmentComboBox = comboBox;
-        this.setTitle(id != null ? "更新环境" : "新增环境");
+        this.runtimeEnvironment = environment;
+        this.setTitle(environment.getId() != null ? "更新环境" : "新增环境");
         this.setSize(600, 881);
         this.setAutoAdjustable(false);
-        if (id != null) {
-            runtimeEnvironment = RuntimeEnvironmentService.execute(service -> service.getById(id));
-        } else {
-            runtimeEnvironment = new RuntimeEnvironment();
-        }
         this.init();
+    }
+
+    /** 在后台线程读取环境后再在EDT上打开对话框, 避免在EDT访问数据库。 */
+    public static void open(Project project, DefaultTableModel model, Module module, JTable table,
+                            AbstractComboBoxAction<RuntimeEnvironment> comboBox, Integer id,
+                            MultiLanguageTextField vmTextField, MultiLanguageTextField argsTextField, MultiLanguageTextField envTextField) {
+        if (id == null) {
+            new EditEnvSettingDialog(project, model, module, table, comboBox, new RuntimeEnvironment(), vmTextField, argsTextField, envTextField).show();
+            return;
+        }
+        AsyncLoader.loadThenOnEdt(
+                () -> RuntimeEnvironmentService.execute(service -> service.getById(id)),
+                environment -> {
+                    if (environment == null) {
+                        Messages.showWarningDialog("运行环境不存在: " + id, "提示");
+                        return;
+                    }
+                    new EditEnvSettingDialog(project, model, module, table, comboBox, environment, vmTextField, argsTextField, envTextField).show();
+                });
     }
 
     @Override
@@ -75,53 +96,23 @@ public class EditEnvSettingDialog extends DialogWrapper {
 
                     @Override
                     public void actionPerformed(ActionEvent e) {
-                        Boolean result = RuntimeEnvironmentService.execute(service -> {
-                            long total = service.countByName(project, module, runtimeEnvironment);
-                            if (total > 0) {
-                                Messages.showInfoMessage("环境名字已存在,请修改名字之后再保存或者更新", "提示");
-                                return false;
-                            } else {
-                                Integer id = service.getSelectEnvId(project, module);
-                                if (Objects.equals(id, runtimeEnvironment.getId())) {
-                                    SwingUtilities.invokeLater(() -> {
-                                        envTextField.setText(runtimeEnvironment.getEnvValue());
-                                        vmTextField.setText(runtimeEnvironment.getVmValue());
-                                        argsTextField.setText(runtimeEnvironment.getArgsValue());
-                                    });
-                                }
-                                for (int i = 0; i < model.getRowCount(); i++) {
-                                    int currId = Integer.parseInt(String.valueOf(model.getValueAt(i,1)));
-                                    if(Objects.equals(runtimeEnvironment.getId(),currId)){
-                                        model.setValueAt(runtimeEnvironment.getName(),i,2);
-                                        model.setValueAt(runtimeEnvironment.getRemark(),i,3);
-                                    }
-                                }
-                                if (runtimeEnvironment.getId() == null) {
-                                    runtimeEnvironment.setProjectHash(project.getLocationHash());
-                                    runtimeEnvironment.setProjectName(project.getName());
-                                    runtimeEnvironment.setProjectPath(project.getBasePath());
-                                    runtimeEnvironment.setModule(module.toString());
-                                    runtimeEnvironment.setIsDefault(0);
-                                    service.save(runtimeEnvironment);
-                                    model.addRow(new Object[]{
-                                            false,
-                                            String.valueOf(runtimeEnvironment.getId()),
-                                            runtimeEnvironment.getName(),
-                                            runtimeEnvironment.getRemark(),
-                                            runtimeEnvironment.getCreated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                                            runtimeEnvironment.getUpdated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                                    });
-                                } else {
-                                    service.updateById(runtimeEnvironment);
-                                }
-
-                                doCancelAction();
-                            }
-                            return true;
-                        });
-                        if (Boolean.TRUE.equals(result)) {
-                            refreshComboBox();
+                        boolean isCreate = runtimeEnvironment.getId() == null;
+                        if (isCreate) {
+                            fillCreationFields();
                         }
+                        // 校验与写库都在后台线程完成, 结果回到EDT再更新界面
+                        AsyncLoader.loadThenOnEdt(() -> saveInBackground(isCreate), result -> {
+                            if (result == SaveResult.DUPLICATED_NAME) {
+                                Messages.showInfoMessage("环境名字已存在,请修改名字之后再保存或者更新", "提示");
+                                return;
+                            }
+                            updateTableRow(isCreate);
+                            if (result == SaveResult.SAVED_SELECTED) {
+                                syncPanelTextFields();
+                            }
+                            doCancelAction();
+                            refreshComboBox();
+                        });
                     }
                 },
                 new AbstractAction("取消") {
@@ -133,20 +124,95 @@ public class EditEnvSettingDialog extends DialogWrapper {
         };
     }
 
-    private void refreshComboBox() {
-        RuntimeEnvironmentService.getService(service -> {
-            List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
-            if (runtimeEnvironments.isEmpty()) {
-                return;
+    private enum SaveResult {
+        DUPLICATED_NAME,
+        SAVED,
+        SAVED_SELECTED
+    }
+
+    /**
+     * 校验与持久化在同一个事务内完成, 并且不在事务里弹模态框、不碰表格模型。
+     * 必须在后台线程调用。
+     */
+    private SaveResult saveInBackground(boolean isCreate) {
+        return RuntimeEnvironmentService.execute(service -> {
+            if (service.countByName(project, module, runtimeEnvironment) > 0) {
+                return SaveResult.DUPLICATED_NAME;
             }
-            RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
-            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream()
-                    .filter(item -> selection != null && item.getId().equals(selection.getId()))
-                    .findFirst().orElseGet(() -> runtimeEnvironments.get(0));
-            runtimeEnvironmentComboBox.setItems(runtimeEnvironments, selectionRuntimeEnvironment);
-            // 保持用户原有的启用/禁用状态, 只更新选中的环境
-            service.updateSelectEnv(selectionRuntimeEnvironment.getId());
+            Integer selectedId = service.getSelectEnvId(project, module);
+            if (isCreate) {
+                service.save(runtimeEnvironment);
+            } else {
+                service.updateById(runtimeEnvironment);
+            }
+            return Objects.equals(selectedId, runtimeEnvironment.getId())
+                    ? SaveResult.SAVED_SELECTED
+                    : SaveResult.SAVED;
         });
+    }
+
+    private void fillCreationFields() {
+        runtimeEnvironment.setProjectHash(project.getLocationHash());
+        runtimeEnvironment.setProjectName(project.getName());
+        runtimeEnvironment.setProjectPath(project.getBasePath());
+        runtimeEnvironment.setModule(module.toString());
+        runtimeEnvironment.setIsDefault(0);
+    }
+
+    private void updateTableRow(boolean isCreate) {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (isCreate) {
+            model.addRow(new Object[]{
+                    false,
+                    String.valueOf(runtimeEnvironment.getId()),
+                    runtimeEnvironment.getName(),
+                    runtimeEnvironment.getRemark(),
+                    runtimeEnvironment.getCreated().format(formatter),
+                    runtimeEnvironment.getUpdated().format(formatter),
+            });
+            return;
+        }
+        for (int i = 0; i < model.getRowCount(); i++) {
+            int currentId = Integer.parseInt(String.valueOf(model.getValueAt(i, 1)));
+            if (Objects.equals(runtimeEnvironment.getId(), currentId)) {
+                model.setValueAt(runtimeEnvironment.getName(), i, 2);
+                model.setValueAt(runtimeEnvironment.getRemark(), i, 3);
+                model.setValueAt(runtimeEnvironment.getUpdated().format(formatter), i, 5);
+            }
+        }
+    }
+
+    private void syncPanelTextFields() {
+        envTextField.setText(runtimeEnvironment.getEnvValue());
+        vmTextField.setText(runtimeEnvironment.getVmValue());
+        argsTextField.setText(runtimeEnvironment.getArgsValue());
+    }
+
+    /** 重新加载环境列表并刷新下拉框, 数据库访问在后台线程完成。 */
+    private void refreshComboBox() {
+        RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
+        Integer selectionId = selection == null ? null : selection.getId();
+        AsyncLoader.loadThenOnEdt(
+                () -> RuntimeEnvironmentService.execute(service -> {
+                    List<RuntimeEnvironment> environments = service.getRuntimeEnvironments(project, module);
+                    if (environments.isEmpty()) {
+                        return null;
+                    }
+                    RuntimeEnvironment selected = environments.stream()
+                            .filter(item -> Objects.equals(item.getId(), selectionId))
+                            .findFirst().orElse(environments.get(0));
+                    // 保持用户原有的启用/禁用状态, 只更新选中的环境
+                    service.updateSelectEnv(selected.getId());
+                    return new Object[]{environments, selected};
+                }),
+                loaded -> {
+                    if (loaded == null) {
+                        return;
+                    }
+                    @SuppressWarnings("unchecked")
+                    List<RuntimeEnvironment> environments = (List<RuntimeEnvironment>) loaded[0];
+                    runtimeEnvironmentComboBox.setItems(environments, (RuntimeEnvironment) loaded[1]);
+                });
     }
 
 

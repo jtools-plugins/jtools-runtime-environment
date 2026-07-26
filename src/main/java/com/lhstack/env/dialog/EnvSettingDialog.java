@@ -10,6 +10,7 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import com.lhstack.data.component.MultiLanguageTextField;
+import com.lhstack.env.AsyncLoader;
 import com.lhstack.env.service.RuntimeEnvironment;
 import com.lhstack.env.service.RuntimeEnvironmentService;
 import com.lhstack.tools.plugins.Logger;
@@ -64,24 +65,34 @@ public class EnvSettingDialog extends DialogWrapper {
                 "更新时间",
                 "操作",
         });
-        RuntimeEnvironmentService.getService(service -> {
-            List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
-            for (RuntimeEnvironment item : runtimeEnvironments) {
-                if (item.getIsDefault() != null && item.getIsDefault() == 1) {
-                    defaultEnvIds.add(item.getId());
-                }
-                model.addRow(new Object[]{
-                        false,
-                        String.valueOf(item.getId()),
-                        item.getName(),
-                        item.getRemark(),
-                        item.getCreated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                        item.getUpdated().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                });
-            }
-        });
         this.jbTable = new JBTable(model);
         this.init();
+        loadRowsAsync();
+    }
+
+    /** 表格先以空模型展示, 数据在后台线程读取后回到EDT填充。 */
+    private void loadRowsAsync() {
+        AsyncLoader.loadThenOnEdt(
+                () -> RuntimeEnvironmentService.execute(service -> service.getRuntimeEnvironments(project, module)),
+                environments -> {
+                    if (environments == null) {
+                        return;
+                    }
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    for (RuntimeEnvironment item : environments) {
+                        if (item.getIsDefault() != null && item.getIsDefault() == 1) {
+                            defaultEnvIds.add(item.getId());
+                        }
+                        model.addRow(new Object[]{
+                                false,
+                                String.valueOf(item.getId()),
+                                item.getName(),
+                                item.getRemark(),
+                                item.getCreated().format(formatter),
+                                item.getUpdated().format(formatter)
+                        });
+                    }
+                });
     }
 
     private boolean isDefaultEnv(Object id) {
@@ -94,7 +105,7 @@ public class EnvSettingDialog extends DialogWrapper {
                 new AbstractAction("新增") {
                     @Override
                     public void actionPerformed(ActionEvent e) {
-                        new EditEnvSettingDialog(project,model,module,jbTable,runtimeEnvironmentComboBox,null, vmTextField, argsTextField, envTextField).show();
+                        EditEnvSettingDialog.open(project, model, module, jbTable, runtimeEnvironmentComboBox, null, vmTextField, argsTextField, envTextField);
                     }
                 },
                 new AbstractAction("删除") {
@@ -121,11 +132,13 @@ public class EnvSettingDialog extends DialogWrapper {
                                         }
                                     }
                                 }
-                                RuntimeEnvironmentService.execute(service -> {
-                                    service.removeBatchByIds(delIds);
-                                    return null;
-                                });
-                                refreshComboBox();
+                                defaultEnvIds.removeAll(delIds);
+                                AsyncLoader.loadThenOnEdt(
+                                        () -> RuntimeEnvironmentService.execute(service -> {
+                                            service.removeBatchByIds(delIds);
+                                            return Boolean.TRUE;
+                                        }),
+                                        done -> refreshComboBox());
                             }
                         }
                     }
@@ -134,25 +147,35 @@ public class EnvSettingDialog extends DialogWrapper {
         };
     }
 
+    /** 重新读取环境列表并刷新面板下拉框, 数据库访问在后台线程完成。 */
     private void refreshComboBox() {
-        RuntimeEnvironmentService.getService(service -> {
-            List<RuntimeEnvironment> runtimeEnvironments = service.getRuntimeEnvironments(project, module);
-            if (runtimeEnvironments.isEmpty()) {
-                return;
-            }
-            RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
-            RuntimeEnvironment selectionRuntimeEnvironment = runtimeEnvironments.stream()
-                    .filter(item -> selection != null && item.getId().equals(selection.getId()))
-                    .findFirst().orElseGet(() -> runtimeEnvironments.get(0));
-            runtimeEnvironmentComboBox.setItems(runtimeEnvironments, selectionRuntimeEnvironment);
-            SwingUtilities.invokeLater(() -> {
-                envTextField.setText(selectionRuntimeEnvironment.getEnvValue());
-                vmTextField.setText(selectionRuntimeEnvironment.getVmValue());
-                argsTextField.setText(selectionRuntimeEnvironment.getArgsValue());
-            });
-            // 保持用户原有的启用/禁用状态, 只更新选中的环境
-            service.updateSelectEnv(selectionRuntimeEnvironment.getId());
-        });
+        RuntimeEnvironment selection = runtimeEnvironmentComboBox.getSelection();
+        Integer selectedId = selection == null ? null : selection.getId();
+        AsyncLoader.loadThenOnEdt(
+                () -> RuntimeEnvironmentService.execute(service -> {
+                    List<RuntimeEnvironment> environments = service.getRuntimeEnvironments(project, module);
+                    if (environments.isEmpty()) {
+                        return null;
+                    }
+                    RuntimeEnvironment target = environments.stream()
+                            .filter(item -> item.getId().equals(selectedId))
+                            .findFirst().orElse(environments.get(0));
+                    // 保持用户原有的启用/禁用状态, 只更新选中的环境
+                    service.updateSelectEnv(target.getId());
+                    return new Object[]{environments, target};
+                }),
+                loaded -> {
+                    if (loaded == null) {
+                        return;
+                    }
+                    @SuppressWarnings("unchecked")
+                    List<RuntimeEnvironment> environments = (List<RuntimeEnvironment>) loaded[0];
+                    RuntimeEnvironment target = (RuntimeEnvironment) loaded[1];
+                    runtimeEnvironmentComboBox.setItems(environments, target);
+                    envTextField.setText(target.getEnvValue() == null ? "" : target.getEnvValue());
+                    vmTextField.setText(target.getVmValue() == null ? "" : target.getVmValue());
+                    argsTextField.setText(target.getArgsValue() == null ? "" : target.getArgsValue());
+                });
     }
 
     @Override
@@ -371,7 +394,7 @@ public class EnvSettingDialog extends DialogWrapper {
                     if (jbTable.isEditing()) {
                         jbTable.getCellEditor().stopCellEditing();
                     }
-                    new EditEnvSettingDialog(project, model, module,jbTable,runtimeEnvironmentComboBox,id.get(),vmTextField,argsTextField,envTextField).show();
+                    EditEnvSettingDialog.open(project, model, module, jbTable, runtimeEnvironmentComboBox, id.get(), vmTextField, argsTextField, envTextField);
                 });
 
                 deleteButton.addActionListener(e -> {
@@ -380,11 +403,15 @@ public class EnvSettingDialog extends DialogWrapper {
                         if (jbTable.isEditing()) {
                             jbTable.getCellEditor().stopCellEditing();
                         }
+                        int deleteId = id.get();
                         model.removeRow(currentRow.get());
-                        RuntimeEnvironmentService.getService(service -> {
-                            service.removeById(id.get());
-                        });
-                        refreshComboBox();
+                        defaultEnvIds.remove(deleteId);
+                        AsyncLoader.loadThenOnEdt(
+                                () -> RuntimeEnvironmentService.execute(service -> {
+                                    service.removeById(deleteId);
+                                    return true;
+                                }),
+                                ignored -> refreshComboBox());
                     }
                 });
                 panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
